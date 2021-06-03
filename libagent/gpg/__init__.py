@@ -27,9 +27,8 @@ from Crypto.Signature import pkcs1_15
 from Crypto.Hash import SHA256, SHA512
 from Crypto.PublicKey import RSA
 
-
-from . import agent, client, encode, keyring, protocol
 from .. import device, formats, server, util
+from . import agent, client, encode, keyring, protocol
 
 log = logging.getLogger(__name__)
 
