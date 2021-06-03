@@ -1,29 +1,16 @@
-# pylint: disable=too-many-locals,too-many-statements,too-many-branches
-# pylint: disable=attribute-defined-outside-init
 """OnlyKey-related code (see https://www.onlykey.io/)."""
 
-<<<<<<< HEAD
 import logging
 import hashlib
 import codecs
+import os
 from os import path
 import time
-=======
-import codecs
-import hashlib
-import logging
-import time
-
->>>>>>> romanz/master
 import ecdsa
 import nacl.signing
 import unidecode
 
 from . import interface
-<<<<<<< HEAD
-from ..gpg import keyring
-=======
->>>>>>> romanz/master
 
 # import pgpy
 # from pgpy import PGPKey
@@ -53,15 +40,8 @@ class OnlyKey(interface.Device):
             self.ok.set_time(time.time())
             self.okversion = self.ok.read_string(timeout_ms=500)
             self.okversion = self.okversion[8:]
-<<<<<<< HEAD
         except Exception:
             raise interface.NotFoundError('{} not connected: "{}"')
-=======
-            self.skeyslot = 132
-            self.dkeyslot = 132
-        except Exception as e:
-            raise interface.NotFoundError('{} not connected: "{}"') from e
->>>>>>> romanz/master
 
     def set_skey(self, skey):
         """Set signing key to use."""
@@ -81,11 +61,8 @@ class OnlyKey(interface.Device):
         # self.import_pubkey_bytes = bytes(self.import_pubkey_obj)
 
     def get_sk_dk(self):
-<<<<<<< HEAD
         """Get signing key and decryption key slots from config."""
-        fpath = keyring.get_agent_sock_path()
-        fpath = fpath.decode()
-        fpath = fpath.replace("S.gpg-agent", "run-agent.sh")
+        fpath = os.path.join(os.environ.get('AGENTHOMEDIR', os.environ.get('GNUPGHOME')), 'run-agent.sh')
         log.debug('Path to run-agent.sh = %s', fpath)
         if path.exists(fpath):
             with open(fpath) as f:
@@ -103,11 +80,6 @@ class OnlyKey(interface.Device):
         else:
             self.set_skey(132)
             self.set_dkey(132)
-=======
-        """Get default signing key and decryption key slots."""
-        self.set_skey(132)
-        self.set_dkey(132)
->>>>>>> romanz/master
 
     def sig_hash(self, sighash):
         """Set signature hashing algorithm to use."""
@@ -213,10 +185,7 @@ class OnlyKey(interface.Device):
                     raise interface.DeviceError(e)
 
             log.info('received= %s', repr(ok_pubkey))
-<<<<<<< HEAD
             log.info(len(ok_pubkey))
-=======
->>>>>>> romanz/master
             if len(ok_pubkey) == 256:
                 # https://security.stackexchange.com/questions/42268/how-do-i-get-the-rsa-bit-length-with-the-pubkey-and-openssl
                 ok_pubkey = b'\x00\x00\x00\x07' + b'\x73\x73\x68\x2d\x72\x73\x61' + \
@@ -286,7 +255,6 @@ class OnlyKey(interface.Device):
                 log.info('Key type secp256k1')
             # Send data and identity hash
             raw_message = blob + data
-<<<<<<< HEAD
         elif curve_name != 'rsa':
             this_slot_id = self.skeyslot
             # Send just data to sign
@@ -296,17 +264,12 @@ class OnlyKey(interface.Device):
             # Send just hash
             raw_message = data
         
-=======
-        else:
-            this_slot_id = self.skeyslot
-            # Send just data to sign
-            raw_message = blob
->>>>>>> romanz/master
         h2 = hashlib.sha256()
         h2.update(raw_message)
         d = h2.digest()
         assert len(d) == 32
         b1, b2, b3 = get_button(self, d[0]), get_button(self, d[15]), get_button(self, d[31])
+
         log.info('Key Slot =%s', this_slot_id)
         print('Enter the 3 digit challenge code on OnlyKey to authorize '+identity.to_string())
         print('{} {} {}'.format(b1, b2, b3))
@@ -330,11 +293,7 @@ class OnlyKey(interface.Device):
                 self.ok.close()
                 return bytes(result)
         else:
-<<<<<<< HEAD
             self.ok.send_large_message2(msg=self._defs.Message.OKSIGN, payload=raw_message,
-=======
-            self.ok.send_large_message2(msg=self._defs.Message.OKSIGN, payload=data,
->>>>>>> romanz/master
                                         slot_id=this_slot_id)
             result = []
             while time.time() < t_end:

@@ -27,8 +27,9 @@ from Crypto.Signature import pkcs1_15
 from Crypto.Hash import SHA256, SHA512
 from Crypto.PublicKey import RSA
 
-from .. import device, formats, server, util
+
 from . import agent, client, encode, keyring, protocol
+from .. import device, formats, server, util
 
 log = logging.getLogger(__name__)
 
@@ -44,7 +45,7 @@ def export_public_key(device_type, args):
     if device_type.package_name() == 'onlykey-agent':
         if hasattr(device_type, 'import_pubkey'):
             return device_type.import_pubkey
-
+    
     verifying_key = c.pubkey(identity=identity, ecdh=False)
     decryption_key = c.pubkey(identity=identity, ecdh=True)
     signer_func = functools.partial(c.sign, identity=identity)
@@ -124,6 +125,9 @@ def write_file(path, data):
 def run_init(device_type, args):
     """Initialize hardware-based GnuPG identity."""
     util.setup_logging(verbosity=args.verbose)
+    log.warning('This GPG tool is still in EXPERIMENTAL mode, '
+                'so please note that the API and features may '
+                'change without backwards compatibility!')
 
     verify_gpg_version()
 
@@ -133,6 +137,9 @@ def run_init(device_type, args):
     homedir = args.homedir
     if not homedir:
         homedir = os.path.expanduser('~/.gnupg/{}'.format(device_name))
+        
+    # Save homedir as environment variable
+    os.environ['AGENTHOMEDIR']=homedir
 
     log.info('GPG home directory: %s', homedir)
 
@@ -197,7 +204,7 @@ else
 fi
 """.format(homedir))
     check_call(['chmod', '700', f.name])
-
+   
     # Generate new GPG identity and import into GPG keyring
     pubkey = write_file(os.path.join(homedir, 'pubkey.asc'),
                         export_public_key(device_type, args))
@@ -263,6 +270,9 @@ def run_agent(device_type):
     args, _ = p.parse_known_args()
 
     assert args.homedir
+    
+    # Save homedir as environment variable
+    os.environ['AGENTHOMEDIR']=args.homedir
 
     log_file = os.path.join(args.homedir, 'gpg-agent.log')
     util.setup_logging(verbosity=args.verbose, filename=log_file)
