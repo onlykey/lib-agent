@@ -20,16 +20,20 @@ class Client:
 
     def export_public_keys(self, identities):
         """Export SSH public keys from the device."""
-        public_keys = []
+        pubkeys = []
         with self.device:
             for i in identities:
-                pubkey = self.device.pubkey(identity=i)
-                vk = formats.decompress_pubkey(pubkey=pubkey,
-                                               curve_name=i.curve_name)
-                public_key = formats.export_public_key(vk=vk,
-                                                       label=i.to_string())
-                public_keys.append(public_key)
-        return public_keys
+                if self.device.package_name() == 'onlykey-agent':
+                    pubkey = self.device.pubkey(identity=i)
+                    vk = pubkey
+                else:
+                    pubkey = self.device.pubkey(identity=i)
+                    vk = formats.decompress_pubkey(pubkey=pubkey,
+                                                   curve_name=i.curve_name)
+                label = i.to_string()
+                pubkey = formats.export_public_key(vk=vk, label=label)
+                pubkeys.append(pubkey)
+        return pubkeys
 
     def sign_ssh_challenge(self, blob, identity):
         """Sign given blob using a private key on the device."""
@@ -44,9 +48,14 @@ class Client:
         log.info('please confirm user "%s" login to "%s" using %s...',
                  msg['user'].decode('ascii'), identity.to_string(),
                  self.device)
-
-        with self.device:
-            return self.device.sign(blob=blob, identity=identity)
+        if self.device.package_name() == 'onlykey-agent':
+            # signature hash type required for RSA
+            self.device.sig_hash(msg['key_type'])
+            with self.device:
+                return self.device.sign(blob=blob, identity=identity)
+        else:
+            with self.device:
+                return self.device.sign(blob=blob, identity=identity)
 
 
 def _parse_ssh_blob(data):

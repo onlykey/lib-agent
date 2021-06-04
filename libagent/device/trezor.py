@@ -5,7 +5,9 @@ import logging
 
 import semver
 
+from .. import formats
 from . import interface
+from .. import formats
 
 log = logging.getLogger(__name__)
 
@@ -70,6 +72,7 @@ class Trezor(interface.Device):
                 log.exception('ping failed: %s', e)
                 connection.close()  # so the next HID open() will succeed
                 raise
+        return None
 
     def close(self):
         """Close connection."""
@@ -87,7 +90,8 @@ class Trezor(interface.Device):
             n=addr,
             ecdsa_curve_name=curve_name)
         log.debug('result: %s', result)
-        return bytes(result.node.public_key)
+        pubkey = bytes(result.node.public_key)
+        return formats.decompress_pubkey(pubkey=pubkey, curve_name=identity.curve_name)
 
     def _identity_proto(self, identity):
         result = self._defs.IdentityType()
@@ -96,6 +100,11 @@ class Trezor(interface.Device):
         return result
 
     def sign(self, identity, blob):
+        """Sign given blob and return the signature (as bytes)."""
+        sig, _ = self.sign_with_pubkey(identity, blob)
+        return sig
+
+    def sign_with_pubkey(self, identity, blob):
         """Sign given blob and return the signature (as bytes)."""
         curve_name = identity.get_curve_name(ecdh=False)
         log.debug('"%s" signing %r (%s) on %s',
@@ -110,7 +119,7 @@ class Trezor(interface.Device):
             log.debug('result: %s', result)
             assert len(result.signature) == 65
             assert result.signature[:1] == b'\x00'
-            return bytes(result.signature[1:])
+            return bytes(result.signature[1:]), bytes(result.public_key)
         except self._defs.TrezorFailure as e:
             msg = '{} error: {}'.format(self, e)
             log.debug(msg, exc_info=True)

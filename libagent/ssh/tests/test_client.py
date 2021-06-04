@@ -17,12 +17,16 @@ PUBKEY_TEXT = ('ecdsa-sha2-nistp256 AAAAE2VjZHNhLXNoYTItbmlzdHAyNTYAAAAIbmlzd'
 
 class MockDevice(device.interface.Device):  # pylint: disable=abstract-method
 
+    @classmethod
+    def package_name(cls):
+        return 'fake-device-agent'
+
     def connect(self):  # pylint: disable=no-self-use
         return mock.Mock()
 
     def pubkey(self, identity, ecdh=False):  # pylint: disable=unused-argument
         assert self.conn
-        return PUBKEY
+        return formats.decompress_pubkey(pubkey=PUBKEY, curve_name=identity.curve_name)
 
     def sign(self, identity, blob):
         """Sign given blob and return the signature (as bytes)."""

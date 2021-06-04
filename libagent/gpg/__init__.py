@@ -20,6 +20,12 @@ import time
 
 import pkg_resources
 import semver
+import Crypto.Hash
+import Crypto.PublicKey
+import Crypto.Signature
+from Crypto.Signature import pkcs1_15
+from Crypto.Hash import SHA256, SHA512
+from Crypto.PublicKey import RSA
 
 
 from . import agent, client, encode, keyring, protocol
@@ -36,6 +42,10 @@ def export_public_key(device_type, args):
     c = client.Client(device=device_type())
     identity = client.create_identity(user_id=args.user_id,
                                       curve_name=args.ecdsa_curve)
+    if device_type.package_name() == 'onlykey-agent':
+        if hasattr(device_type, 'import_pubkey'):
+            return device_type.import_pubkey
+    
     verifying_key = c.pubkey(identity=identity, ecdh=False)
     decryption_key = c.pubkey(identity=identity, ecdh=True)
     signer_func = functools.partial(c.sign, identity=identity)
@@ -127,6 +137,9 @@ def run_init(device_type, args):
     homedir = args.homedir
     if not homedir:
         homedir = os.path.expanduser('~/.gnupg/{}'.format(device_name))
+        
+    # Save homedir as environment variable
+    os.environ['AGENTHOMEDIR']=homedir
 
     log.info('GPG home directory: %s', homedir)
 
@@ -141,16 +154,31 @@ def run_init(device_type, args):
     agent_path = util.which('{}-gpg-agent'.format(device_name))
 
     # Prepare GPG agent invocation script (to pass the PATH from environment).
-    with open(os.path.join(homedir, 'run-agent.sh'), 'w') as f:
-        f.write(r"""#!/bin/sh
-export PATH="{0}"
-{1} \
--vv \
---pin-entry-binary={pin_entry_binary} \
---passphrase-entry-binary={passphrase_entry_binary} \
---cache-expiry-seconds={cache_expiry_seconds} \
-$*
-""".format(os.environ['PATH'], agent_path, **vars(args)))
+    if device_type.package_name() == 'onlykey-agent':
+        if args.import_pub != None:
+            with args.import_pub as f:
+                device_type.import_pub(device_type, f.read())
+        with open(os.path.join(homedir, 'run-agent.sh'), 'w') as f:
+            f.write(r"""#!/bin/sh
+    export PATH="{0}"
+    {1} \
+    -vv \
+    --skey-slot={skey} \
+    --dkey-slot={dkey} \
+    $*
+    """.format(os.environ['PATH'], agent_path, **vars(args)))
+    else:
+        with open(os.path.join(homedir, 'run-agent.sh'), 'w') as f:
+            f.write(r"""#!/bin/sh
+    export PATH="{0}"
+    {1} \
+    -vv \
+    --pin-entry-binary={pin_entry_binary} \
+    --passphrase-entry-binary={passphrase_entry_binary} \
+    --cache-expiry-seconds={cache_expiry_seconds} \
+    $*
+    """.format(os.environ['PATH'], agent_path, **vars(args)))
+
     check_call(['chmod', '700', f.name])
     run_agent_script = f.name
 
@@ -176,7 +204,7 @@ else
 fi
 """.format(homedir))
     check_call(['chmod', '700', f.name])
-
+   
     # Generate new GPG identity and import into GPG keyring
     pubkey = write_file(os.path.join(homedir, 'pubkey.asc'),
                         export_public_key(device_type, args))
@@ -226,17 +254,25 @@ def run_agent(device_type):
     p.add_argument('-v', '--verbose', default=0, action='count')
     p.add_argument('--server', default=False, action='store_true',
                    help='Use stdin/stdout for communication with GPG.')
-
-    p.add_argument('--pin-entry-binary', type=str, default='pinentry',
-                   help='Path to PIN entry UI helper.')
-    p.add_argument('--passphrase-entry-binary', type=str, default='pinentry',
-                   help='Path to passphrase entry UI helper.')
-    p.add_argument('--cache-expiry-seconds', type=float, default=float('inf'),
-                   help='Expire passphrase from cache after this duration.')
+    if device_type.package_name() == 'onlykey-agent':
+        p.add_argument('-sk', '--skey', type=int, metavar='SIGN_KEY',
+                       default=132,
+                       help='specify key to use for signing')
+        p.add_argument('-dk', '--dkey', type=int, metavar='DECRYPT_KEY',
+                       default=132,
+                       help='specify key to use for decryption')
+    else:
+        p.add_argument('--passphrase-entry-binary', type=str, default='pinentry',
+                       help='Path to passphrase entry UI helper.')
+        p.add_argument('--cache-expiry-seconds', type=float, default=float('inf'),
+                       help='Expire passphrase from cache after this duration.')
 
     args, _ = p.parse_known_args()
 
     assert args.homedir
+    
+    # Save homedir as environment variable
+    os.environ['AGENTHOMEDIR']=args.homedir
 
     log_file = os.path.join(args.homedir, 'gpg-agent.log')
     util.setup_logging(verbosity=args.verbose, filename=log_file)
@@ -282,7 +318,7 @@ def main(device_type):
 
     agent_package = device_type.package_name()
     resources_map = {r.key: r for r in pkg_resources.require(agent_package)}
-    resources = [resources_map[agent_package], resources_map['libagent']]
+    resources = [resources_map[agent_package], resources_map['lib-agent']]
     versions = '\n'.join('{}={}'.format(r.key, r.version) for r in resources)
     parser.add_argument('--version', help='print the version info',
                         action='version', version=versions)
@@ -293,28 +329,53 @@ def main(device_type):
     p = subparsers.add_parser('init',
                               help='initialize hardware-based GnuPG identity')
     p.add_argument('user_id')
-    p.add_argument('-e', '--ecdsa-curve', default='nist256p1')
-    p.add_argument('-t', '--time', type=int, default=0)
     p.add_argument('-v', '--verbose', default=0, action='count')
     p.add_argument('-s', '--subkey', default=False, action='store_true')
 
-    p.add_argument('--homedir', type=str, default=os.environ.get('GNUPGHOME'),
-                   help='Customize GnuPG home directory for the new identity.')
+    if agent_package == 'onlykey-agent':
+        p.add_argument('-e', '--ecdsa-curve', default='ed25519')
+        p.add_argument('-sk', '--skey', type=int, metavar='SIGN_KEY',
+                       default=132,
+                       help='specify key to use for signing')
+        p.add_argument('-dk', '--dkey', type=int, metavar='DECRYPT_KEY',
+                       default=132,
+                       help='specify key to use for decryption')
+        p.add_argument('-i', '--import-pub', type=argparse.FileType('r'), metavar='IMPORT_PUBLIC_KEY',
+                       default=None,
+                       help='import existing OpenPGP public key to use (Load private using OnlyKey App)')
+        p.add_argument('-t', '--time', type=int, default=0)
 
-    p.add_argument('--pin-entry-binary', type=str, default='pinentry',
-                   help='Path to PIN entry UI helper.')
-    p.add_argument('--passphrase-entry-binary', type=str, default='pinentry',
-                   help='Path to passphrase entry UI helper.')
-    p.add_argument('--cache-expiry-seconds', type=float, default=float('inf'),
-                   help='Expire passphrase from cache after this duration.')
+        p.add_argument('--homedir', type=str, default=os.environ.get('GNUPGHOME'),
+                       help='Customize GnuPG home directory for the new identity.')
 
-    p.set_defaults(func=run_init)
+        p.set_defaults(func=run_init)
 
-    p = subparsers.add_parser('unlock', help='unlock the hardware device')
-    p.add_argument('-v', '--verbose', default=0, action='count')
-    p.set_defaults(func=run_unlock)
+    else:
+        p.add_argument('-e', '--ecdsa-curve', default='nist256p1')
+        p.add_argument('-t', '--time', type=int, default=0)
+        p.add_argument('--homedir', type=str, default=os.environ.get('GNUPGHOME'),
+                       help='Customize GnuPG home directory for the new identity.')
+
+        p.add_argument('--pin-entry-binary', type=str, default='pinentry',
+                       help='Path to PIN entry UI helper.')
+        p.add_argument('--passphrase-entry-binary', type=str, default='pinentry',
+                       help='Path to passphrase entry UI helper.')
+        p.add_argument('--cache-expiry-seconds', type=float, default=float('inf'),
+                       help='Expire passphrase from cache after this duration.')
+
+        p.set_defaults(func=run_init)
+
+        p = subparsers.add_parser('unlock', help='unlock the hardware device')
+        p.add_argument('-v', '--verbose', default=0, action='count')
+
+        p.set_defaults(func=run_unlock)
 
     args = parser.parse_args()
-    device_type.ui = device.ui.UI(device_type=device_type, config=vars(args))
+
+    if agent_package == 'onlykey-agent':
+        device_type.set_skey(device_type, args.skey)
+        device_type.set_dkey(device_type, args.dkey)
+    else:
+        device_type.ui = device.ui.UI(device_type=device_type, config=vars(args))
 
     return args.func(device_type=device_type, args=args)
