@@ -255,11 +255,11 @@ def run_agent(device_type):
     p.add_argument('--server', default=False, action='store_true',
                    help='Use stdin/stdout for communication with GPG.')
     if device_type.package_name() == 'onlykey-agent':
-        p.add_argument('-sk', '--skey', type=int, metavar='SIGN_KEY',
-                       default=132,
+        p.add_argument('-sk', '--skey', type=str, metavar='SIGN_KEY',
+                       default='ECC32',
                        help='specify key to use for signing')
-        p.add_argument('-dk', '--dkey', type=int, metavar='DECRYPT_KEY',
-                       default=132,
+        p.add_argument('-dk', '--dkey', type=str, metavar='DECRYPT_KEY',
+                       default='ECC32',
                        help='specify key to use for decryption')
     else:
         p.add_argument('--passphrase-entry-binary', type=str, default='pinentry',
@@ -334,11 +334,11 @@ def main(device_type):
 
     if agent_package == 'onlykey-agent':
         p.add_argument('-e', '--ecdsa-curve', default='ed25519')
-        p.add_argument('-sk', '--skey', type=int, metavar='SIGN_KEY',
-                       default=132,
+        p.add_argument('-sk', '--skey', type=str, metavar='SIGN_KEY',
+                       default='ECC32',
                        help='specify key to use for signing')
-        p.add_argument('-dk', '--dkey', type=int, metavar='DECRYPT_KEY',
-                       default=132,
+        p.add_argument('-dk', '--dkey', type=str, metavar='DECRYPT_KEY',
+                       default='ECC32',
                        help='specify key to use for decryption')
         p.add_argument('-i', '--import-pub', type=argparse.FileType('r'), metavar='IMPORT_PUBLIC_KEY',
                        default=None,

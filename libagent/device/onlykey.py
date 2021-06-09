@@ -46,12 +46,12 @@ class OnlyKey(interface.Device):
     def set_skey(self, skey):
         """Set signing key to use."""
         self.skeyslot = skey
-        log.debug('Setting skey slot = %s', skey)
+        print('Setting skey slot = %s', skey)
 
     def set_dkey(self, dkey):
         """Set decryption key to use."""
         self.dkeyslot = dkey
-        log.debug('Setting dkey slot = %s', dkey)
+        print('Setting dkey slot = %s', dkey)
 
     def import_pub(self, pubkey):
         """Import PGP public key."""
@@ -67,16 +67,26 @@ class OnlyKey(interface.Device):
         if path.exists(fpath):
             with open(fpath) as f:
                 s = f.read()
-                if '--skey-slot=' in s:
+                if '--skey-slot=ECC' in s:
+                    if s[s.find('--skey-slot=')+16:s.find('--skey-slot=')+17] == ' ':
+                        self.set_skey(int(s[s.find('--skey-slot=')+15:s.find('--skey-slot=')+16])+100)
+                    else:
+                        self.set_skey(int(s[s.find('--skey-slot=')+15:s.find('--skey-slot=')+17])+100)
+                elif '--skey-slot=' in s:
                     if s[s.find('--skey-slot=')+13:s.find('--skey-slot=')+14] == ' ':
                         self.set_skey(int(s[s.find('--skey-slot=')+12:s.find('--skey-slot=')+13]))
                     else:
                         self.set_skey(int(s[s.find('--skey-slot=')+12:s.find('--skey-slot=')+15]))
-                if '--dkey-slot=' in s:
+                if '--dkey-slot=ECC' in s:
+                    if s[s.find('--dkey-slot=')+16:s.find('--dkey-slot=')+17] == ' ':
+                        self.set_dkey(int(s[s.find('--dkey-slot=')+15:s.find('--dkey-slot=')+16])+100)
+                    else:
+                        self.set_dkey(int(s[s.find('--dkey-slot=')+15:s.find('--dkey-slot=')+17])+100)
+                elif '--dkey-slot=' in s:
                     if s[s.find('--dkey-slot=')+13:s.find('--dkey-slot=')+14] == ' ':
                         self.set_dkey(int(s[s.find('--dkey-slot=')+12:s.find('--dkey-slot=')+13]))
                     else:
-                        self.set_dkey(int(s[s.find('--dkey-slot=')+12:s.find('--dkey-slot=')+15]))
+                        self.set_dkey(int(s[s.find('--dkey-slot=')+12:s.find('--dkey-slot=')+15]))            
         else:
             self.set_skey(132)
             self.set_dkey(132)
