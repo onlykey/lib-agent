@@ -3,7 +3,7 @@ from setuptools import setup
 
 setup(
     name='lib-agent',
-    version='1.0.2',
+    version='1.0.3',
     description='Using OnlyKey as hardware SSH and GPG agent',
     author='CryptoTrust',
     author_email='admin@crp.to',

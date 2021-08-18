@@ -41,9 +41,17 @@ class Client:
         if identity.curve_name == formats.CURVE_NIST256:
             digest = digest[:32]  # sign the first 256 bits
         log.debug('signing digest: %s', util.hexlify(digest))
+        log.debug('identity type: %s', identity.curve_name)
+        if (identity.curve_name == 'rsa2048' or identity.curve_name == 'rsa4096') and len(digest) == 32: 
+            self.device.sig_hash(b'rsa-sha2-256')
+        elif (identity.curve_name == 'rsa2048' or identity.curve_name == 'rsa4096') and len(digest) == 64: 
+            self.device.sig_hash(b'rsa-sha2-512')
         with self.device:
             sig = self.device.sign(blob=digest, identity=identity)
-        return (util.bytes2num(sig[:32]), util.bytes2num(sig[32:]))
+        if (identity.curve_name == 'rsa2048' or identity.curve_name == 'rsa4096'):
+            return util.bytes2num(sig)
+        else:
+            return (util.bytes2num(sig[:32]), util.bytes2num(sig[32:]))
 
     def ecdh(self, identity, pubkey):
         """Derive shared secret using ECDH from remote public key."""

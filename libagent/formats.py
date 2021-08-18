@@ -21,8 +21,9 @@ log = logging.getLogger(__name__)
 # Supported algorithms for SSH and GPG (ECC Curves and RSA)
 CURVE_NIST256 = 'nist256p1'
 CURVE_ED25519 = 'ed25519'
-RSA = 'rsa'
-SUPPORTED_CURVES = {CURVE_NIST256, CURVE_ED25519, RSA}
+RSA2048 = 'rsa2048'
+RSA4096 = 'rsa4096'
+SUPPORTED_CURVES = {CURVE_NIST256, CURVE_ED25519, RSA2048, RSA4096}
 
 # Supported ECDH curves (for GPG)
 ECDH_NIST256 = 'nist256p1'
@@ -136,7 +137,7 @@ def parse_pubkey(blob):
 def _decompress_ed25519(pubkey):
     """Load public key from the serialized blob (stripping the prefix byte)."""
     if pubkey[:1] == b'\x00':
-        # set by Trezor fsm_msgSignIdentity() and fsm_msgGetPublicKey()
+        # set by device fsm_msgSignIdentity() and fsm_msgGetPublicKey()
         return nacl.signing.VerifyKey(pubkey[1:], encoder=nacl.encoding.RawEncoder)
     else:
         return None
@@ -252,5 +253,6 @@ def get_ecdh_curve_name(signature_curve_name):
         CURVE_NIST256: ECDH_NIST256,
         CURVE_ED25519: ECDH_CURVE25519,
         ECDH_CURVE25519: ECDH_CURVE25519,
-        RSA: RSA,
+        RSA2048: RSA2048,
+        RSA4096: RSA4096,
     }[signature_curve_name]

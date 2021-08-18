@@ -123,6 +123,10 @@ def keygrip_nist256(vk):
         ['q', util.num2bytes(q, size=65)],
     ])
 
+def keygrip_rsa(n, length):
+    """Compute keygrip for rsa public keys."""
+    nhex = b'\x00' + util.num2bytes(n, size=int(length/8))
+    return hashlib.sha1(nhex).digest()
 
 def keygrip_ed25519(vk):
     """Compute keygrip for Ed25519 public keys."""
@@ -135,7 +139,6 @@ def keygrip_ed25519(vk):
         ['n', util.num2bytes(0x1000000000000000000000000000000014DEF9DEA2F79CD65812631A5CF5D3ED, size=32)],  # nopep8
         ['q', vk.encode(encoder=nacl.encoding.RawEncoder)],
     ])
-
 
 def keygrip_curve25519(vk):
     """Compute keygrip for Curve25519 public keys."""
@@ -174,7 +177,7 @@ SUPPORTED_CURVES = {
 
 ECDH_ALGO_ID = 18
 
-CUSTOM_KEY_LABEL = b'TREZOR-GPG'  # marks "our" pubkey
+CUSTOM_KEY_LABEL = b'ONLYKEY-GPG'  # marks "our" pubkey
 CUSTOM_SUBPACKET_ID = 26  # use "policy URL" subpacket
 CUSTOM_SUBPACKET = subpacket(CUSTOM_SUBPACKET_ID, CUSTOM_KEY_LABEL)
 
@@ -193,7 +196,7 @@ class PublicKey:
     def __init__(self, curve_name, created, verifying_key, ecdh=False):
         """Contruct using a ECDSA VerifyingKey object."""
         self.curve_name = curve_name
-        if curve_name != 'rsa':
+        if curve_name != 'rsa2048' and curve_name != 'rsa4096':
             self.curve_info = SUPPORTED_CURVES[curve_name]
             self.ecdh = bool(ecdh)
             if ecdh:
@@ -221,10 +224,9 @@ class PublicKey:
             oid = util.prefix_len('>B', self.curve_info['oid'])
             blob = self.curve_info['serialize'](self.verifying_key)
             return header + oid + blob + self.ecdh_packet
-        #else: # RSA
-            #TODO Implement RSA GPG 
-            #blob = util.bytes2num(self.verifying_key))
-            #return header + blob
+        else: # RSA
+            blob = util.bytes2num(self.verifying_key)
+            return header + blob
 
     def data_to_hash(self):
         """Data for digest computation."""

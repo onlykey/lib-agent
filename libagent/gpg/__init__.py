@@ -44,6 +44,7 @@ def export_public_key(device_type, args):
                                       curve_name=args.ecdsa_curve)
     if device_type.package_name() == 'onlykey-agent':
         if hasattr(device_type, 'import_pubkey'):
+            print('PUBLIC KEY IMPORTED')
             return device_type.import_pubkey
     
     verifying_key = c.pubkey(identity=identity, ecdh=False)
