@@ -77,6 +77,8 @@ class OnlyKey(interface.Device):
                         self.set_skey(int(s[s.find('--skey-slot=')+15:s.find('--skey-slot=')+16])+100)
                     else:
                         self.set_skey(int(s[s.find('--skey-slot=')+15:s.find('--skey-slot=')+17])+100)
+                if '--skey-slot=RSA' in s:
+                    self.set_skey(int(s[s.find('--skey-slot=')+15:s.find('--skey-slot=')+16]))
                 elif '--skey-slot=' in s:
                     if s[s.find('--skey-slot=')+13:s.find('--skey-slot=')+14] == ' ':
                         self.set_skey(int(s[s.find('--skey-slot=')+12:s.find('--skey-slot=')+13]))
@@ -87,6 +89,8 @@ class OnlyKey(interface.Device):
                         self.set_dkey(int(s[s.find('--dkey-slot=')+15:s.find('--dkey-slot=')+16])+100)
                     else:
                         self.set_dkey(int(s[s.find('--dkey-slot=')+15:s.find('--dkey-slot=')+17])+100)
+                if '--dkey-slot=RSA' in s:
+                    self.set_dkey(int(s[s.find('--dkey-slot=')+15:s.find('--dkey-slot=')+16]))
                 elif '--dkey-slot=' in s:
                     if s[s.find('--dkey-slot=')+13:s.find('--dkey-slot=')+14] == ' ':
                         self.set_dkey(int(s[s.find('--dkey-slot=')+12:s.find('--dkey-slot=')+13]))
@@ -290,7 +294,7 @@ class OnlyKey(interface.Device):
             this_slot_id = self.skeyslot
             # Send just hash
             raw_message = data
-        
+
         h2 = hashlib.sha256()
         h2.update(raw_message)
         d = h2.digest()
