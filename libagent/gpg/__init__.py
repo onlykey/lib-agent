@@ -126,9 +126,9 @@ def write_file(path, data):
 def run_init(device_type, args):
     """Initialize hardware-based GnuPG identity."""
     util.setup_logging(verbosity=args.verbose)
-    log.warning('This GPG tool is still in EXPERIMENTAL mode, '
-                'so please note that the API and features may '
-                'change without backwards compatibility!')
+    #log.warning('This GPG tool is still in EXPERIMENTAL mode, '
+    #            'so please note that the API and features may '
+    #            'change without backwards compatibility!')
 
     verify_gpg_version()
 
