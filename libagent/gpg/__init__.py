@@ -36,15 +36,14 @@ log = logging.getLogger(__name__)
 
 def export_public_key(device_type, args):
     """Generate a new pubkey for a new/existing GPG identity."""
-    log.warning('NOTE: in order to re-generate the exact same GPG key later, '
-                'run this command with "--time=%d" commandline flag (to set '
-                'the timestamp of the GPG key manually).', args.time)
+    #log.warning('NOTE: in order to re-generate the exact same GPG key later, '
+    #            'run this command with "--time=%d" commandline flag (to set '
+    #            'the timestamp of the GPG key manually).', args.time)
     c = client.Client(device=device_type())
     identity = client.create_identity(user_id=args.user_id,
                                       curve_name=args.ecdsa_curve)
     if device_type.package_name() == 'onlykey-agent':
         if hasattr(device_type, 'import_pubkey'):
-            print('PUBLIC KEY IMPORTED')
             return device_type.import_pubkey
     
     verifying_key = c.pubkey(identity=identity, ecdh=False)
@@ -156,7 +155,7 @@ def run_init(device_type, args):
 
     # Prepare GPG agent invocation script (to pass the PATH from environment).
     if device_type.package_name() == 'onlykey-agent':
-        if args.import_pub != None:
+        if args.import_pub is not None:
             with args.import_pub as f:
                 device_type.import_pub(device_type, f.read())
         with open(os.path.join(homedir, 'run-agent.sh'), 'w') as f:
