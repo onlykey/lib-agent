@@ -177,7 +177,6 @@ class OnlyKey(interface.Device):
             log.info('received= %s', repr(ok_pubkey))
             if ok_pubkey[:5] == [69, 114, 114, 111, 114]:
                 raise interface.DeviceError("".join([chr(value) for value in ok_pubkey]))
-
             if len(set(ok_pubkey[34:63])) == 1:
                 if curve_name in ('nist256p1', 'secp256k1'):
                     raise interface.DeviceError("Public key curve does not match requested type")
