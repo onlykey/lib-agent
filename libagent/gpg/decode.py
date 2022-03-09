@@ -5,6 +5,7 @@ import hashlib
 import io
 import logging
 import struct
+from Crypto.Util.number import long_to_bytes
 
 import ecdsa
 import nacl.signing
@@ -174,8 +175,22 @@ def _parse_pubkey(stream, packet_type='pubkey'):
             parse_mpis(stream, n=4)  # DSA keys are not supported
         elif p['algo'] == ELGAMAL_ALGO_ID:
             parse_mpis(stream, n=3)  # ElGamal keys are not supported
-        else:  # assume RSA
-            parse_mpis(stream, n=2)  # RSA keys are not supported
+        elif p['algo'] in RSA_ALGO_IDS:  
+            log.debug('parsing rsa key')
+            mpi = parse_mpi(stream)  # RSA key
+            log.debug('mpi: %d (%d bits)', mpi, mpi.bit_length())
+            keygrip = protocol.keygrip_rsa(mpi, mpi.bit_length())
+            log.debug('keygrip: %s', util.hexlify(keygrip))
+            p['keygrip'] = keygrip
+            leftover = stream.read()
+            if leftover:
+                leftover = io.BytesIO(leftover)
+                # https://tools.ietf.org/html/rfc6637#section-8
+                # should be b'\x03\x01\x08\x07': SHA256 + AES128
+                size, = util.readfmt(leftover, 'B')
+                p['kdf'] = leftover.read(size)
+                p['secret'] = leftover.read()
+            
         assert not stream.read()
 
     # https://tools.ietf.org/html/rfc4880#section-12.2

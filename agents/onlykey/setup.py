@@ -3,15 +3,15 @@ from setuptools import setup
 
 setup(
     name='onlykey-agent',
-    version='1.1.11',
+    version='1.1.12',
     description='Using OnlyKey as hardware SSH/GPG agent',
     author='CryptoTrust',
     author_email='admin@crp.to',
     url='http://github.com/trustcrypto/onlykey-agent',
     scripts=['onlykey_agent.py'],
     install_requires=[
-        'lib-agent>=1.0.2',
-        'onlykey>=1.2.5'
+        'lib-agent>=1.0.3',
+        'onlykey>=1.2.6'
     ],
     platforms=['POSIX'],
     classifiers=[

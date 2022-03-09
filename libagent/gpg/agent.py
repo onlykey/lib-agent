@@ -27,26 +27,49 @@ def sig_encode(r, s):
     s = util.assuan_serialize(util.num2bytes(s, 32))
     return b'(7:sig-val(5:ecdsa(1:r32:' + r + b')(1:s32:' + s + b')))'
 
+def sig_encode_rsa(s, length):
+    """Encode RSA signature data into GPG S-expression."""
+    s = util.assuan_serialize(util.num2bytes(s, length))
+    if length == 256:
+        return b'(7:sig-val(3:rsa(1:s256:' + s + b')))'
+    elif length == 512:
+        return b'(7:sig-val(3:rsa(1:s512:' + s + b')))'
 
 def _serialize_point(data):
     prefix = '{}:'.format(len(data)).encode('ascii')
     # https://www.gnupg.org/documentation/manuals/assuan/Server-responses.html
     return b'(5:value' + util.assuan_serialize(prefix + data) + b')'
 
+def _serialize_rsa(data):
+    # https://www.gnupg.org/documentation/manuals/assuan/Server-responses.html
+    if (data[0]==9):
+        # AES with 256-bit key
+        # https://datatracker.ietf.org/doc/html/rfc4880#section-9.2
+        data = data[0:35]
+    elif (data[0]==7):
+        # AES with 128-bit key
+        data = data[0:19] 
+    
+    prefix = '{}:'.format(len(data)).encode('ascii')
+    return b'(5:value' + util.assuan_serialize(prefix + data) + b')'
 
-def parse_ecdh(line):
+def parse_decrypt(line):
     """Parse ECDH request and return remote public key."""
     prefix, line = line.split(b' ', 1)
     assert prefix == b'D'
     exp, leftover = keyring.parse(keyring.unescape(line))
-    log.debug('ECDH s-exp: %r', exp)
+    log.debug('ECDH/RSA s-exp: %r', exp)
     assert not leftover
     label, exp = exp
     assert label == b'enc-val'
-    assert exp[0] == b'ecdh'
+    assert (exp[0] == b'ecdh' or exp[0] == b'rsa')
     items = exp[1:]
-    log.debug('ECDH parameters: %r', items)
-    return dict(items)[b'e']
+    if exp[0] == b'rsa':
+        log.debug('RSA parameters: %r', items)
+        return dict(items)[b'a']
+    else:
+        log.debug('ECDH parameters: %r', items)
+        return dict(items)[b'e']
 
 
 def _key_info(conn, args):
@@ -93,7 +116,7 @@ class Handler:
             b'SETKEYDESC': None,
             b'NOP': None,
             b'GETINFO': self.handle_getinfo,
-            b'AGENT_ID': lambda conn, _: keyring.sendline(conn, b'D TREZOR'),  # "Fake" agent ID
+            b'AGENT_ID': lambda conn, _: keyring.sendline(conn, b'D ONLYKEY'),  # "Fake" agent ID
             b'SIGKEY': lambda _, args: self.set_key(*args),
             b'SETKEY': lambda _, args: self.set_key(*args),
             b'SETHASH': lambda _, args: self.set_hash(*args),
@@ -103,6 +126,7 @@ class Handler:
             b'KEYINFO': _key_info,
             b'SCD': self.handle_scd,
             b'GET_PASSPHRASE': self.handle_get_passphrase,
+            b'GET_CONFIRMATION': self.handle_get_confirmation,
         }
 
     def reset(self):
@@ -115,6 +139,9 @@ class Handler:
         """Store GPG agent-related options (e.g. for pinentry)."""
         self.options.append(opt)
         log.debug('options: %s', self.options)
+
+    def handle_get_confirmation(self, conn, _):
+        """Prompt user for OnlyKey Challenge Code"""
 
     def handle_get_passphrase(self, conn, _):
         """Allow simple GPG symmetric encryption (using a passphrase)."""
@@ -161,45 +188,76 @@ class Handler:
         keygrip_bytes = binascii.unhexlify(keygrip)
         pubkey_dict, user_ids = decode.load_by_keygrip(
             pubkey_bytes=self.pubkey_bytes, keygrip=keygrip_bytes)
-        # We assume the first user ID is used to generate TREZOR-based GPG keys.
+        # We assume the first user ID is used to generate Agent-based GPG keys.
         user_id = user_ids[0]['value'].decode('utf-8')
-        curve_name = protocol.get_curve_name_by_oid(pubkey_dict['curve_oid'])
-        ecdh = (pubkey_dict['algo'] == protocol.ECDH_ALGO_ID)
-
-        identity = client.create_identity(user_id=user_id, curve_name=curve_name)
-        verifying_key = self.client.pubkey(identity=identity, ecdh=ecdh)
-        pubkey = protocol.PublicKey(
-            curve_name=curve_name, created=pubkey_dict['created'],
-            verifying_key=verifying_key, ecdh=ecdh)
-        assert pubkey.key_id() == pubkey_dict['key_id']
-        assert pubkey.keygrip() == keygrip_bytes
+        if pubkey_dict['algo'] not in {1, 2, 3}:
+            curve_name = protocol.get_curve_name_by_oid(pubkey_dict['curve_oid'])
+            ecdh = (pubkey_dict['algo'] == protocol.ECDH_ALGO_ID)
+            identity = client.create_identity(user_id=user_id, curve_name=curve_name)
+            verifying_key = self.client.pubkey(identity=identity, ecdh=ecdh)
+            pubkey = protocol.PublicKey(
+                curve_name=curve_name, created=pubkey_dict['created'],
+                verifying_key=verifying_key, ecdh=ecdh)
+            assert pubkey.key_id() == pubkey_dict['key_id']
+            assert pubkey.keygrip() == keygrip_bytes
+        elif len(pubkey_dict['_to_hash']) < 350:
+            identity = client.create_identity(user_id=user_id, curve_name='rsa2048')
+            verifying_key = self.client.pubkey(identity=identity, ecdh=False)
+            pubkey = protocol.PublicKey(
+            curve_name='rsa2048', created=pubkey_dict['created'],
+            verifying_key=verifying_key, ecdh=False)
+        elif len(pubkey_dict['_to_hash']) < 700:
+            identity = client.create_identity(user_id=user_id, curve_name='rsa4096')
+            verifying_key = self.client.pubkey(identity=identity, ecdh=False)
+            pubkey = protocol.PublicKey(
+            curve_name='rsa4096', created=pubkey_dict['created'],
+            verifying_key=verifying_key, ecdh=False)   
+        else:
+            identity = 'unknown identity type'
+            log.error(identity)
+            
+        log.info('IDENTITY(%s)', identity)   
         return identity
 
     def pksign(self, conn):
         """Sign a message digest using a private EC key."""
         log.debug('signing %r digest (algo #%s)', self.digest, self.algo)
         identity = self.get_identity(keygrip=self.keygrip)
-        r, s = self.client.sign(identity=identity,
+        if identity.curve_name == 'rsa2048' :
+            s = self.client.sign(identity=identity,
                                 digest=binascii.unhexlify(self.digest))
-        result = sig_encode(r, s)
+            result = sig_encode_rsa(s, 256)
+        elif identity.curve_name == 'rsa4096':
+            s = self.client.sign(identity=identity,
+                                digest=binascii.unhexlify(self.digest))
+            result = sig_encode_rsa(s, 512)
+        else:
+            r, s = self.client.sign(identity=identity,
+                                digest=binascii.unhexlify(self.digest))
+            result = sig_encode(r, s)
         log.debug('result: %r', result)
         keyring.sendline(conn, b'D ' + result)
 
     def pkdecrypt(self, conn):
-        """Handle decryption using ECDH."""
+        """Handle decryption using ECDH/RSA."""
         for msg in [b'S INQUIRE_MAXLEN 4096', b'INQUIRE CIPHERTEXT']:
             keyring.sendline(conn, msg)
 
         line = keyring.recvline(conn)
         assert keyring.recvline(conn) == b'END'
-        remote_pubkey = parse_ecdh(line)
+        remote_pubkey = parse_decrypt(line)
 
         identity = self.get_identity(keygrip=self.keygrip)
-        ec_point = self.client.ecdh(identity=identity, pubkey=remote_pubkey)
-        keyring.sendline(conn, b'D ' + _serialize_point(ec_point))
+        if identity.curve_name == 'rsa2048' or identity.curve_name == 'rsa4096':
+            dvalue = _serialize_rsa(self.client.ecdh(identity=identity, pubkey=remote_pubkey))
+        else:
+            dvalue = _serialize_point(self.client.ecdh(identity=identity, pubkey=remote_pubkey))
+            
+        keyring.sendline(conn, b'S PADDING 0')
+        keyring.sendline(conn, b'D ' + dvalue)
 
     def have_key(self, *keygrips):
-        """Check if any keygrip corresponds to a TREZOR-based key."""
+        """Check if any keygrip corresponds to a Agent-based key."""
         for keygrip in keygrips:
             try:
                 self.get_identity(keygrip=keygrip)

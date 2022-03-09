@@ -34,22 +34,31 @@ class OnlyKey(interface.Device):
 
     def connect(self):
         """Enumerate and connect to the first USB HID interface."""
-        try:
-            self.device_name = 'OnlyKey'
-            self.ok = self._defs.OnlyKey()
-            self.ok.set_time(time.time())
-            self.okversion = self.ok.read_string(timeout_ms=500)
-            self.okversion = self.okversion[8:]
-        except Exception:
-            raise interface.NotFoundError('{} not connected: "{}"')
+        t_end = time.time() + 2.5
+        while time.time() < t_end:
+            try:
+                self.device_name = 'OnlyKey'
+                self.ok = self._defs.OnlyKey()
+                self.ok.set_time(time.time())
+                self.okversion = self.ok.read_string(timeout_ms=100)
+                if len(self.okversion) > 8:
+                    self.okversion = self.okversion[8:]
+                    if self.okversion[0] == 'v':
+                        break
+            except Exception:
+                raise interface.NotFoundError('{} not connected: "{}"')
 
     def set_skey(self, skey):
         """Set signing key to use."""
+        if isinstance(skey, str):
+            skey = convert_keyslot(self, skey)
         self.skeyslot = skey
         log.debug('Setting skey slot = %s', skey)
 
     def set_dkey(self, dkey):
         """Set decryption key to use."""
+        if isinstance(dkey, str):
+            dkey = convert_keyslot(self, dkey)
         self.dkeyslot = dkey
         log.debug('Setting dkey slot = %s', dkey)
 
@@ -67,12 +76,26 @@ class OnlyKey(interface.Device):
         if path.exists(fpath):
             with open(fpath) as f:
                 s = f.read()
-                if '--skey-slot=' in s:
+                if '--skey-slot=ECC' in s:
+                    if s[s.find('--skey-slot=')+16:s.find('--skey-slot=')+17] == ' ':
+                        self.set_skey(int(s[s.find('--skey-slot=')+15:s.find('--skey-slot=')+16])+100)
+                    else:
+                        self.set_skey(int(s[s.find('--skey-slot=')+15:s.find('--skey-slot=')+17])+100)
+                elif '--skey-slot=RSA' in s:
+                    self.set_skey(int(s[s.find('--skey-slot=')+15:s.find('--skey-slot=')+16]))
+                elif '--skey-slot=' in s:
                     if s[s.find('--skey-slot=')+13:s.find('--skey-slot=')+14] == ' ':
                         self.set_skey(int(s[s.find('--skey-slot=')+12:s.find('--skey-slot=')+13]))
                     else:
                         self.set_skey(int(s[s.find('--skey-slot=')+12:s.find('--skey-slot=')+15]))
-                if '--dkey-slot=' in s:
+                if '--dkey-slot=ECC' in s:
+                    if s[s.find('--dkey-slot=')+16:s.find('--dkey-slot=')+17] == ' ':
+                        self.set_dkey(int(s[s.find('--dkey-slot=')+15:s.find('--dkey-slot=')+16])+100)
+                    else:
+                        self.set_dkey(int(s[s.find('--dkey-slot=')+15:s.find('--dkey-slot=')+17])+100)
+                elif '--dkey-slot=RSA' in s:
+                    self.set_dkey(int(s[s.find('--dkey-slot=')+15:s.find('--dkey-slot=')+16]))
+                elif '--dkey-slot=' in s:
                     if s[s.find('--dkey-slot=')+13:s.find('--dkey-slot=')+14] == ' ':
                         self.set_dkey(int(s[s.find('--dkey-slot=')+12:s.find('--dkey-slot=')+13]))
                     else:
@@ -142,7 +165,7 @@ class OnlyKey(interface.Device):
         self.ok.send_message(msg=self._defs.Message.OKGETPUBKEY, slot_id=this_slot_id, payload=data)
         log.info('curve name= %s', repr(curve_name))
         t_end = time.time() + 1.5
-        if curve_name != 'rsa':
+        if 'rsa' not in curve_name:
             while time.time() < t_end:
                 try:
                     ok_pubkey = self.ok.read_bytes(timeout_ms=100)
@@ -152,6 +175,8 @@ class OnlyKey(interface.Device):
                     raise interface.DeviceError(e)
 
             log.info('received= %s', repr(ok_pubkey))
+            if ok_pubkey[:5] == [69, 114, 114, 111, 114]:
+                raise interface.DeviceError("".join([chr(value) for value in ok_pubkey]))
             if len(set(ok_pubkey[34:63])) == 1:
                 if curve_name in ('nist256p1', 'secp256k1'):
                     raise interface.DeviceError("Public key curve does not match requested type")
@@ -174,30 +199,42 @@ class OnlyKey(interface.Device):
                 return vk
         else:
             ok_pubkey = []
+            if curve_name == 'rsa2048':
+                publen = 256
+            elif 'rsa' in curve_name:
+                publen = 512
             while time.time() < t_end:
                 try:
                     ok_pub_part = self.ok.read_bytes(timeout_ms=100)
                     if len(ok_pub_part) == 64 and len(set(ok_pub_part[0:63])) != 1:
                         log.info('received part= %s', repr(ok_pub_part))
                         ok_pubkey += ok_pub_part
+                        if len(ok_pubkey) == publen:
+                            break
                         # Todo know RSA type to know how many packets
                 except Exception as e:
                     raise interface.DeviceError(e)
 
-            log.info('received= %s', repr(ok_pubkey))
+            log.info('Received Public Key generated by OnlyKey= %s', repr(ok_pubkey))
             log.info(len(ok_pubkey))
             if len(ok_pubkey) == 256:
-                # https://security.stackexchange.com/questions/42268/how-do-i-get-the-rsa-bit-length-with-the-pubkey-and-openssl
-                ok_pubkey = b'\x00\x00\x00\x07' + b'\x73\x73\x68\x2d\x72\x73\x61' + \
-                                                b'\x00\x00\x00\x03' + b'\x01\x00\x01' + \
-                                                b'\x00\x00\x01\x01' + b'\x00' + bytes(ok_pubkey)
-                # ok_pubkey = b'\x00\x00\x00\x07' + b'\x72\x73\x61\x2d\x73\x68\x61\x32\x2d\x32\x35\x
-                # 36' + b'\x00\x00\x00\x03' + b'\x01\x00\x01' + b'\x00\x00\x01\x01' + b'\x00' + byte
-                # s(ok_pubkey)
+                if identity.identity_dict['proto'] == 'ssh':
+                    # https://security.stackexchange.com/questions/42268/how-do-i-get-the-rsa-bit-length-with-the-pubkey-and-openssl
+                    ok_pubkey = b'\x00\x00\x00\x07' + b'\x73\x73\x68\x2d\x72\x73\x61' + \
+                                                    b'\x00\x00\x00\x03' + b'\x01\x00\x01' + \
+                                                    b'\x00\x00\x01\x01' + b'\x00' + bytes(ok_pubkey)
+                    # ok_pubkey = b'\x00\x00\x00\x07' + b'\x72\x73\x61\x2d\x73\x68\x61\x32\x2d\x32\x35\x
+                    # 36' + b'\x00\x00\x00\x03' + b'\x01\x00\x01' + b'\x00\x00\x01\x01' + b'\x00' + byte
+                    # s(ok_pubkey)
+                else:
+                    ok_pubkey = bytes(ok_pubkey)
             elif len(ok_pubkey) == 512:
-                ok_pubkey = b'\x00\x00\x00\x07' + b'\x73\x73\x68\x2d\x72\x73\x61' + \
-                                                b'\x00\x00\x00\x03' + b'\x01\x00\x01' + \
-                                                b'\x00\x00\x02\x01' + b'\x00' + bytes(ok_pubkey)
+                if identity.identity_dict['proto'] == 'ssh':
+                    ok_pubkey = b'\x00\x00\x00\x07' + b'\x73\x73\x68\x2d\x72\x73\x61' + \
+                                                    b'\x00\x00\x00\x03' + b'\x01\x00\x01' + \
+                                                    b'\x00\x00\x02\x01' + b'\x00' + bytes(ok_pubkey)
+                else:
+                    ok_pubkey = bytes(ok_pubkey)
             else:
                 raise interface.DeviceError("Error response length is not a valid public key")
             log.info('pubkey len = %s', len(ok_pubkey))
@@ -211,7 +248,7 @@ class OnlyKey(interface.Device):
         if identity.identity_dict['proto'] != 'ssh' and hasattr('self', 'skeyslot') is False:
             self.get_sk_dk()
         # Calculate hash for SSH signing
-        if curve_name == 'rsa':
+        if 'rsa' in curve_name:
             if self.sighash == b'rsa-sha2-512':
                 log.info('rsa-sha2-512')
                 h1 = hashlib.sha512()
@@ -263,7 +300,7 @@ class OnlyKey(interface.Device):
             this_slot_id = self.skeyslot
             # Send just hash
             raw_message = data
-        
+
         h2 = hashlib.sha256()
         h2.update(raw_message)
         d = h2.digest()
@@ -274,7 +311,7 @@ class OnlyKey(interface.Device):
         print('Enter the 3 digit challenge code on OnlyKey to authorize '+identity.to_string())
         print('{} {} {}'.format(b1, b2, b3))
         t_end = time.time() + 22
-        if curve_name != 'rsa':
+        if 'rsa' not in curve_name:
             self.ok.send_large_message2(msg=self._defs.Message.OKSIGN, payload=raw_message,
                                         slot_id=this_slot_id)
             while time.time() < t_end:
@@ -293,15 +330,23 @@ class OnlyKey(interface.Device):
                 self.ok.close()
                 return bytes(result)
         else:
+            log.info('Signature packet =%d', raw_message)
             self.ok.send_large_message2(msg=self._defs.Message.OKSIGN, payload=raw_message,
                                         slot_id=this_slot_id)
             result = []
+            if curve_name == 'rsa2048':
+                siglen = 256
+            elif 'rsa' in curve_name:
+                siglen = 512
             while time.time() < t_end:
                 try:
                     sig_part = self.ok.read_bytes(timeout_ms=100)
                     if len(sig_part) == 64 and len(set(sig_part[0:63])) != 1:
                         log.info('received part= %s', repr(sig_part))
                         result += sig_part
+                        if len(result) == siglen:
+                            log.info('received len= %d', len(result))
+                            break
                         t_end = time.time() + 1
                         # Todo know RSA type to know how many packets
                 except Exception as e:
@@ -360,7 +405,7 @@ class OnlyKey(interface.Device):
         print('Enter the 3 digit challenge code on OnlyKey to authorize ' + identity.to_string())
         print('{} {} {}'.format(b1, b2, b3))
         t_end = time.time() + 22
-        if curve_name != 'rsa':
+        if 'rsa' not in curve_name:
             while time.time() < t_end:
                 try:
                     result = self.ok.read_bytes(timeout_ms=100)
@@ -395,3 +440,13 @@ def get_button(self, byte):
         return byte % 5 + 1
     else:
         return byte % 6 + 1
+
+def convert_keyslot (self, s):
+    """Return key slot number."""
+    if 'ECC' in s:
+        if len(s) == 5:
+            return int(s[3:5]) + 100
+        else:
+            return int(s[3:4]) + 100
+    elif 'RSA' in s:
+        return int(s[3:4])

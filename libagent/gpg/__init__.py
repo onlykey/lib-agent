@@ -36,9 +36,9 @@ log = logging.getLogger(__name__)
 
 def export_public_key(device_type, args):
     """Generate a new pubkey for a new/existing GPG identity."""
-    log.warning('NOTE: in order to re-generate the exact same GPG key later, '
-                'run this command with "--time=%d" commandline flag (to set '
-                'the timestamp of the GPG key manually).', args.time)
+    #log.warning('NOTE: in order to re-generate the exact same GPG key later, '
+    #            'run this command with "--time=%d" commandline flag (to set '
+    #            'the timestamp of the GPG key manually).', args.time)
     c = client.Client(device=device_type())
     identity = client.create_identity(user_id=args.user_id,
                                       curve_name=args.ecdsa_curve)
@@ -125,9 +125,9 @@ def write_file(path, data):
 def run_init(device_type, args):
     """Initialize hardware-based GnuPG identity."""
     util.setup_logging(verbosity=args.verbose)
-    log.warning('This GPG tool is still in EXPERIMENTAL mode, '
-                'so please note that the API and features may '
-                'change without backwards compatibility!')
+    #log.warning('This GPG tool is still in EXPERIMENTAL mode, '
+    #            'so please note that the API and features may '
+    #            'change without backwards compatibility!')
 
     verify_gpg_version()
 
@@ -155,7 +155,7 @@ def run_init(device_type, args):
 
     # Prepare GPG agent invocation script (to pass the PATH from environment).
     if device_type.package_name() == 'onlykey-agent':
-        if args.import_pub != None:
+        if args.import_pub is not None:
             with args.import_pub as f:
                 device_type.import_pub(device_type, f.read())
         with open(os.path.join(homedir, 'run-agent.sh'), 'w') as f:
@@ -255,11 +255,11 @@ def run_agent(device_type):
     p.add_argument('--server', default=False, action='store_true',
                    help='Use stdin/stdout for communication with GPG.')
     if device_type.package_name() == 'onlykey-agent':
-        p.add_argument('-sk', '--skey', type=int, metavar='SIGN_KEY',
-                       default=132,
+        p.add_argument('-sk', '--skey', type=str, metavar='SIGN_KEY',
+                       default='ECC32',
                        help='specify key to use for signing')
-        p.add_argument('-dk', '--dkey', type=int, metavar='DECRYPT_KEY',
-                       default=132,
+        p.add_argument('-dk', '--dkey', type=str, metavar='DECRYPT_KEY',
+                       default='ECC32',
                        help='specify key to use for decryption')
     else:
         p.add_argument('--passphrase-entry-binary', type=str, default='pinentry',
@@ -334,11 +334,11 @@ def main(device_type):
 
     if agent_package == 'onlykey-agent':
         p.add_argument('-e', '--ecdsa-curve', default='ed25519')
-        p.add_argument('-sk', '--skey', type=int, metavar='SIGN_KEY',
-                       default=132,
+        p.add_argument('-sk', '--skey', type=str, metavar='SIGN_KEY',
+                       default='ECC32',
                        help='specify key to use for signing')
-        p.add_argument('-dk', '--dkey', type=int, metavar='DECRYPT_KEY',
-                       default=132,
+        p.add_argument('-dk', '--dkey', type=str, metavar='DECRYPT_KEY',
+                       default='ECC32',
                        help='specify key to use for decryption')
         p.add_argument('-i', '--import-pub', type=argparse.FileType('r'), metavar='IMPORT_PUBLIC_KEY',
                        default=None,
