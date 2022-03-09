@@ -122,7 +122,7 @@ class Handler:
             b'SETHASH': lambda _, args: self.set_hash(*args),
             b'PKSIGN': lambda conn, _: self.pksign(conn),
             b'PKDECRYPT': lambda conn, _: self.pkdecrypt(conn),
-            b'HAVEKEY': lambda _, args: self.have_key(*args),
+            b'HAVEKEY': lambda conn, args: self.have_key(conn, *args),
             b'KEYINFO': _key_info,
             b'SCD': self.handle_scd,
             b'GET_PASSPHRASE': self.handle_get_passphrase,
@@ -258,6 +258,13 @@ class Handler:
 
     def have_key(self, *keygrips):
         """Check if any keygrip corresponds to a Agent-based key."""
+        if len(keygrips) == 1 and keygrips[0].startswith(b"--list="):
+            # Support "fast-path" key listing:
+            # https://dev.gnupg.org/rG40da61b89b62dcb77847dc79eb159e885f52f817
+            keygrips = list(decode.iter_keygrips(pubkey_bytes=self.pubkey_bytes))
+            log.debug('keygrips: %r', keygrips)
+            keyring.sendline(conn, b'D ' + util.assuan_serialize(b''.join(keygrips)))
+            return
         for keygrip in keygrips:
             try:
                 self.get_identity(keygrip=keygrip)

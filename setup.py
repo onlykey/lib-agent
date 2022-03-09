@@ -3,20 +3,24 @@ from setuptools import setup
 
 setup(
     name='lib-agent',
-    version='1.0.3',
+    version='1.0.4',
     description='Using OnlyKey as hardware SSH and GPG agent',
     author='CryptoTrust',
     author_email='admin@crp.to',
     url='http://github.com/onlykey/onlykey-agent',
     packages=[
         'libagent',
+        'libagent.age',
         'libagent.device',
         'libagent.gpg',
         'libagent.signify',
         'libagent.ssh',
     ],
     install_requires=[
+        'bech32>=1.2.0',
+        'cryptography>=3.4.6',
         'docutils>=0.16',
+        'python-daemon>=2.3.0',
         'wheel>=0.32.3',
         'backports.shutil_which>=3.5.1',
         'ConfigArgParse>=0.12.1',

@@ -18,6 +18,7 @@ import subprocess
 import sys
 import time
 
+import daemon
 import pkg_resources
 import semver
 import Crypto.Hash
@@ -132,7 +133,7 @@ def run_init(device_type, args):
     verify_gpg_version()
 
     # Prepare new GPG home directory for hardware-based identity
-    device_name = os.path.basename(sys.argv[0]).rsplit('-', 1)[0]
+    device_name = device_type.package_name().rsplit('-', 1)[0]
     log.info('device name: %s', device_name)
     homedir = args.homedir
     if not homedir:
@@ -262,13 +263,27 @@ def run_agent(device_type):
                        default='ECC32',
                        help='specify key to use for decryption')
     else:
+        p.add_argument('--daemon', default=False, action='store_true',
+                    help='Daemonize the agent.')
+
+        p.add_argument('--pin-entry-binary', type=str, default='pinentry',
+                    help='Path to PIN entry UI helper.')
         p.add_argument('--passphrase-entry-binary', type=str, default='pinentry',
-                       help='Path to passphrase entry UI helper.')
+                    help='Path to passphrase entry UI helper.')
         p.add_argument('--cache-expiry-seconds', type=float, default=float('inf'),
-                       help='Expire passphrase from cache after this duration.')
+                    help='Expire passphrase from cache after this duration.')
 
     args, _ = p.parse_known_args()
 
+    if args.daemon:
+        with daemon.DaemonContext():
+            run_agent_internal(args, device_type)
+    else:
+        run_agent_internal(args, device_type)
+
+
+def run_agent_internal(args, device_type):
+    """Actually run the server."""
     assert args.homedir
     
     # Save homedir as environment variable
