@@ -37,7 +37,7 @@ class Client:
 
     def sign_ssh_challenge(self, blob, identity):
         """Sign given blob using a private key on the device."""
-        msg = _parse_ssh_blob(blob)
+        msg = parse_ssh_blob(blob)
         if msg['sshsig']:
             log.info('please confirm "%s" signature for "%s" using %s...',
                      msg['namespace'], identity.to_string(), self.device)
