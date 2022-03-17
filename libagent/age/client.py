@@ -29,16 +29,19 @@ class Client:
         with self.device:
             pubkey = bytes(self.device.pubkey(ecdh=ecdh, identity=identity))
             assert len(pubkey) == 32
+            log.info('AGE Pubkey %s', pubkey)
             return pubkey
 
     def ecdh(self, identity, peer_pubkey):
         """Derive shared secret using ECDH from peer public key."""
         log.info('please confirm AGE decryption on %s for "%s"...',
                  self.device, identity.to_string())
+        print('AGE peer_pubkey %s', peer_pubkey)
         with self.device:
             assert len(peer_pubkey) == 32
             result, self_pubkey = self.device.ecdh_with_pubkey(
-                pubkey=(b"\x40" + peer_pubkey), identity=identity)
+                pubkey=(peer_pubkey), identity=identity)
+            log.info('AGE result %s', result)
             assert result[:1] == b"\x04"
             hkdf = HKDF(
                  algorithm=hashes.SHA256(),
