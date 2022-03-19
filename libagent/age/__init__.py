@@ -52,8 +52,8 @@ def run_pubkey(device_type, args):
     print(f"# recipient: {recipient}")
     print(f"# SLIP-0017: {args.identity}")
     data = args.identity.encode()
-    encoded = bech32_encode(prefix="age-plugin-trezor-", data=data).upper()
-    decoded = bech32_decode(prefix="age-plugin-trezor-", encoded=encoded)
+    encoded = bech32_encode(prefix="age-plugin-onlykey-", data=data).upper()
+    decoded = bech32_decode(prefix="age-plugin-onlykey-", encoded=encoded)
     assert decoded.startswith(data)
     print(encoded)
 
@@ -85,6 +85,7 @@ def decrypt(key, encrypted):
 def run_decrypt(device_type, args):
     """Unlock hardware device (for future interaction)."""
     # pylint: disable=too-many-locals
+    print("TEST")
     c = client.Client(device=device_type())
 
     lines = (line.strip() for line in sys.stdin)  # strip whitespace
@@ -100,7 +101,7 @@ def run_decrypt(device_type, args):
 
         if line.startswith("-> add-identity "):
             encoded = line.split(" ")[-1].lower()
-            data = bech32_decode("age-plugin-trezor-", encoded)
+            data = bech32_decode("age-plugin-onlykey-", encoded)
             identity = client.create_identity(data.decode())
             identities.append(identity)
 
@@ -146,7 +147,7 @@ def main(device_type):
 
     agent_package = device_type.package_name()
     resources_map = {r.key: r for r in pkg_resources.require(agent_package)}
-    resources = [resources_map[agent_package], resources_map['libagent']]
+    resources = [resources_map[agent_package], resources_map['lib-agent']]
     versions = '\n'.join('{}={}'.format(r.key, r.version) for r in resources)
     p.add_argument('--version', help='print the version info',
                    action='version', version=versions)
@@ -157,7 +158,7 @@ def main(device_type):
 
     args = p.parse_args()
 
-    log_path = os.environ.get("TREZOR_AGE_PLUGIN_LOG")
+    log_path = os.environ.get("ONLYKEY_AGE_PLUGIN_LOG")
     util.setup_logging(verbosity=2, filename=log_path)
 
     log.debug("starting age plugin: %s", args)

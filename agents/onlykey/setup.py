@@ -3,15 +3,15 @@ from setuptools import setup
 
 setup(
     name='onlykey-agent',
-    version='1.1.12',
+    version='1.1.13',
     description='Using OnlyKey as hardware SSH/GPG agent',
     author='CryptoTrust',
     author_email='admin@crp.to',
     url='http://github.com/trustcrypto/onlykey-agent',
     scripts=['onlykey_agent.py'],
     install_requires=[
-        'lib-agent>=1.0.3',
-        'onlykey>=1.2.6'
+        'lib-agent>=1.0.4',
+        'onlykey>=1.2.8'
     ],
     platforms=['POSIX'],
     classifiers=[
@@ -36,5 +36,7 @@ setup(
         'onlykey-agent = onlykey_agent:ssh_agent',
         'onlykey-gpg = onlykey_agent:gpg_tool',
         'onlykey-gpg-agent = onlykey_agent:gpg_agent',
+        'onlykey-signify = onlykey_agent:signify_tool',
+        'age-plugin-onlykey = onlykey_agent:age_tool',  # see https://github.com/str4d/rage/blob/main/age-plugin/README.md
     ]},
 )

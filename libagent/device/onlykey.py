@@ -357,6 +357,15 @@ class OnlyKey(interface.Device):
             return bytes(result)
         raise Exception('failed to sign challenge')
 
+    def ecdh_with_pubkey(self, identity, pubkey):
+        """Get shared session key using Elliptic Curve Diffie-Hellman & self public key."""
+        self_pubkey = self.pubkey(ecdh=False, identity=identity)
+        log.info('Using self_pubkey= %s', self_pubkey)
+        session_key = self.ecdh(identity, pubkey)
+        if self_pubkey:
+            self_pubkey = self_pubkey
+        return session_key, self_pubkey
+
     def ecdh(self, identity, pubkey):
         """Get shared session key using Elliptic Curve Diffie-Hellman."""
         curve_name = identity.get_curve_name(ecdh=True)
