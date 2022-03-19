@@ -38,7 +38,7 @@ class Client:
         with self.device:
             assert len(peer_pubkey) == 32
             result, self_pubkey = self.device.ecdh_with_pubkey(
-                pubkey=(b"\x40" + peer_pubkey), identity=identity)
+                pubkey=peer_pubkey, identity=identity)
             assert result[:1] == b"\x04"
             hkdf = HKDF(
                  algorithm=hashes.SHA256(),

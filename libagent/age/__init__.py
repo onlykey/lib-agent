@@ -85,7 +85,6 @@ def decrypt(key, encrypted):
 def run_decrypt(device_type, args):
     """Unlock hardware device (for future interaction)."""
     # pylint: disable=too-many-locals
-    print("TEST")
     c = client.Client(device=device_type())
 
     lines = (line.strip() for line in sys.stdin)  # strip whitespace
