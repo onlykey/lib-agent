@@ -1,3 +1,5 @@
+# pylint: disable=too-many-locals,too-many-statements,too-many-branches
+# pylint: disable=attribute-defined-outside-init
 """OnlyKey-related code (see https://www.onlykey.io/)."""
 
 import logging
@@ -306,7 +308,6 @@ class OnlyKey(interface.Device):
         d = h2.digest()
         assert len(d) == 32
         b1, b2, b3 = get_button(self, d[0]), get_button(self, d[15]), get_button(self, d[31])
-
         log.info('Key Slot =%s', this_slot_id)
         print('Enter the 3 digit challenge code on OnlyKey to authorize '+identity.to_string())
         print('{} {} {}'.format(b1, b2, b3))

@@ -2,11 +2,11 @@
 
 import logging
 # pylint: disable=unused-import,import-error,no-name-in-module,no-member
+import logging
 import os
 
 import mnemonic
 import semver
-
 import trezorlib
 from trezorlib.btc import get_address, get_public_node
 from trezorlib.client import PASSPHRASE_TEST_PATH
@@ -25,7 +25,7 @@ def find_device():
     If unset, picks first connected device.
     """
     try:
-        return get_transport(os.environ.get("TREZOR_PATH"))
+        return get_transport(os.environ.get("TREZOR_PATH"), prefix_search=True)
     except Exception as e:  # pylint: disable=broad-except
         log.debug("Failed to find a Trezor device: %s", e)
         return None

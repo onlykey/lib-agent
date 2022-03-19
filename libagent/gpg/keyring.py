@@ -17,8 +17,11 @@ log = logging.getLogger(__name__)
 def check_output(args, env=None, sp=subprocess):
     """Call an external binary and return its stdout."""
     log.debug('calling %s with env %s', args, env)
-    output = sp.check_output(args=args, env=env)
+    p = sp.Popen(args=args, env=env, stdin=sp.PIPE, stdout=sp.PIPE, stderr=sp.PIPE)
+    (output, error) = p.communicate()
     log.debug('output: %r', output)
+    if error:
+        log.debug('error: %r', error)
     return output
 
 
@@ -222,7 +225,7 @@ def gpg_version(sp=subprocess):
     """Get a keygrip of the primary GPG key of the specified user."""
     args = gpg_command(['--version'])
     output = check_output(args=args, sp=sp)
-    line = output.split(b'\n')[0]  # b'gpg (GnuPG) 2.1.11'
+    line = output.split(b'\n', maxsplit=1)[0]  # b'gpg (GnuPG) 2.1.11'
     line = line.split(b' ')[-1]  # b'2.1.11'
     line = line.split(b'-')[0]  # remove trailing version parts
     return line.split(b'v')[-1]  # remove 'v' prefix

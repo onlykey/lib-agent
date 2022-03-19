@@ -11,7 +11,7 @@ setup(
     scripts=['trezor_agent.py'],
     install_requires=[
         'libagent>=0.14.0',
-        'trezor[hidapi]>=0.12.0,<0.13'
+        'trezor[hidapi]>=0.13'
     ],
     platforms=['POSIX'],
     classifiers=[
@@ -37,5 +37,6 @@ setup(
         'trezor-gpg = trezor_agent:gpg_tool',
         'trezor-gpg-agent = trezor_agent:gpg_agent',
         'trezor-signify = trezor_agent:signify_tool',
+        'age-plugin-trezor = trezor_agent:age_tool',  # see https://github.com/str4d/rage/blob/main/age-plugin/README.md
     ]},
 )
