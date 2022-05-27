@@ -30,7 +30,7 @@ class KeepKey(trezor.Trezor):
         from . import keepkey_defs
         return keepkey_defs
 
-    required_version = '>=1.0.4'
+    required_version = '>=1.0.5'
 
     def _override_state_handler(self, _):
         """No support for `state` handling on Keepkey."""

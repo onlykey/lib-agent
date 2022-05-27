@@ -10,7 +10,7 @@ setup(
     url='http://github.com/trustcrypto/onlykey-agent',
     scripts=['onlykey_agent.py'],
     install_requires=[
-        'lib-agent>=1.0.4',
+        'lib-agent>=1.0.5',
         'onlykey>=1.2.8'
     ],
     platforms=['POSIX'],
