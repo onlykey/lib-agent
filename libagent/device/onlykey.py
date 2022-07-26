@@ -425,6 +425,12 @@ class OnlyKey(interface.Device):
         # Determine type of key to derive on OnlyKey for ecdh
         # Slot 132 used for derived key, slots 101-116 used for stored ecc keys,
         # slots 1-4 used for stored RSA keys
+        keygrip_slot_id = None
+        if identity.identity_dict['proto'] != 'ssh':
+            log.info('Looking for keygrip =%s', identity.identity_dict['keygrip'])
+            keygrip = identity.identity_dict['keygrip']
+            keygrip_slot_id = self.get_key_by_keygrip(keygrip)
+
         if self.dkeyslot == 132:
             if curve_name == 'curve25519':
                 this_slot_id = 204
@@ -437,7 +443,10 @@ class OnlyKey(interface.Device):
                 log.info('Key type secp256k1')
             raw_message = pubkey + data
         else:
-            this_slot_id = self.dkeyslot
+            if keygrip_slot_id is not None:
+                this_slot_id = keygrip_slot_id
+            else:
+                this_slot_id = self.dkeyslot
             raw_message = pubkey
         log.info('Key Slot =%s', this_slot_id)
         log.info('data hash =%s', data)
