@@ -11,7 +11,7 @@ import time
 import ecdsa
 import nacl.signing
 import unidecode
-import importlib
+import re
 
 from . import interface
 
@@ -73,6 +73,7 @@ class OnlyKey(interface.Device):
         # self.import_pubkey_bytes = bytes(self.import_pubkey_obj)
 
     def get_key_by_keygrip(self, keygrip):
+        keygriplong = keygrip
         keygrip = keygrip[:16]
         log.info(keygrip)
         keygrips = {}
@@ -84,6 +85,9 @@ class OnlyKey(interface.Device):
                 keygrips[i.label.replace("ÿ", " ").encode('ascii')] = i.number - 24
         if keygrip in keygrips:
             return keygrips[keygrip]
+        for i in keylabels:
+            if re.search(r'[A-F0-9]{16}', i.label):
+                raise KeyError('keygrip %s not found' % keygriplong)
         return None
 
 
