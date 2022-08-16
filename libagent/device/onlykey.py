@@ -11,6 +11,7 @@ import time
 import ecdsa
 import nacl.signing
 import unidecode
+import re
 
 from . import interface
 
@@ -71,6 +72,27 @@ class OnlyKey(interface.Device):
         # self.import_pubkey_obj, _ = pgpy.PGPKey.from_blob(pubkey)
         # self.import_pubkey_bytes = bytes(self.import_pubkey_obj)
 
+    def get_key_by_keygrip(self, keygrip):
+        if keygrip is None:
+            return None
+        keygriplong = keygrip
+        keygrip = keygrip[:16]
+        log.info(keygrip)
+        keygrips = {}
+        keylabels = self.ok.getkeylabels()
+        for i in keylabels:
+            if i.number + 72 >= 100:
+                keygrips[i.label.replace("ÿ", " ").encode('ascii')] = i.number + 72
+            else:
+                keygrips[i.label.replace("ÿ", " ").encode('ascii')] = i.number - 24
+        if keygrip in keygrips:
+            return keygrips[keygrip]
+        for i in keylabels:
+            if re.search(r'[A-F0-9]{16}', i.label):
+                raise KeyError('keygrip %s not found' % keygriplong)
+        return None
+
+
     def get_sk_dk(self):
         """Get signing key and decryption key slots from config."""
         fpath = os.path.join(os.environ.get('AGENTHOMEDIR', os.environ.get('GNUPGHOME')), 'run-agent.sh')
@@ -120,9 +142,17 @@ class OnlyKey(interface.Device):
     def pubkey(self, identity, ecdh=False):
         """Return public key."""
         curve_name = identity.get_curve_name(ecdh=ecdh)
-        if identity.identity_dict['proto'] != 'ssh' and hasattr('self', 'skeyslot') is False:
+        keygrip_slot_id = None
+        if identity.identity_dict['proto'] != 'ssh' and hasattr(self, 'skeyslot') is False:
             self.get_sk_dk()
-        if identity.identity_dict['proto'] != 'ssh' and self.dkeyslot < 132 and ecdh is True:
+        if identity.identity_dict['proto'] != 'ssh':
+            log.info('Looking for keygrip =%s', identity.identity_dict['keygrip'])
+            keygrip = identity.identity_dict['keygrip']
+            keygrip_slot_id = self.get_key_by_keygrip(keygrip)
+
+        if keygrip_slot_id is not None:
+            this_slot_id = keygrip_slot_id
+        elif identity.identity_dict['proto'] != 'ssh' and self.dkeyslot < 132 and ecdh is True:
             this_slot_id = self.dkeyslot
             log.info('Key Slot =%s', this_slot_id)
         elif self.skeyslot < 132 and ecdh is False:
@@ -247,8 +277,13 @@ class OnlyKey(interface.Device):
         curve_name = identity.get_curve_name(ecdh=False)
         log.debug('"%s" signing %r (%s) on %s',
                   identity.to_string(), blob, curve_name, self)
-        if identity.identity_dict['proto'] != 'ssh' and hasattr('self', 'skeyslot') is False:
+        keygrip_slot_id = None
+        if identity.identity_dict['proto'] != 'ssh' and hasattr(self, 'skeyslot') is False:
             self.get_sk_dk()
+        if identity.identity_dict['proto'] != 'ssh':
+            log.info('Looking for keygrip =%s', identity.identity_dict['keygrip'])
+            keygrip = identity.identity_dict['keygrip']
+            keygrip_slot_id = self.get_key_by_keygrip(keygrip)
         # Calculate hash for SSH signing
         if 'rsa' in curve_name:
             if self.sighash == b'rsa-sha2-512':
@@ -282,7 +317,14 @@ class OnlyKey(interface.Device):
         # Determine type of key to derive on OnlyKey for signature
         # Slot 132 used for derived key, slots 101-116 used for stored ecc keys
         # slots 1-4 used for stored RSA keys
-        if self.skeyslot == 132:
+        if keygrip_slot_id is not None:
+            this_slot_id = keygrip_slot_id
+            log.info('Key Slot =%s', this_slot_id)
+            if curve_name != 'rsa':
+                raw_message = blob
+            else:
+                raw_message = data
+        elif self.skeyslot == 132:
             if curve_name == 'ed25519':
                 this_slot_id = 201
                 log.info('Key type ed25519')
@@ -389,6 +431,12 @@ class OnlyKey(interface.Device):
         # Determine type of key to derive on OnlyKey for ecdh
         # Slot 132 used for derived key, slots 101-116 used for stored ecc keys,
         # slots 1-4 used for stored RSA keys
+        keygrip_slot_id = None
+        if identity.identity_dict['proto'] != 'ssh':
+            log.info('Looking for keygrip =%s', identity.identity_dict['keygrip'])
+            keygrip = identity.identity_dict['keygrip']
+            keygrip_slot_id = self.get_key_by_keygrip(keygrip)
+
         if self.dkeyslot == 132:
             if curve_name == 'curve25519':
                 this_slot_id = 204
@@ -401,7 +449,10 @@ class OnlyKey(interface.Device):
                 log.info('Key type secp256k1')
             raw_message = pubkey + data
         else:
-            this_slot_id = self.dkeyslot
+            if keygrip_slot_id is not None:
+                this_slot_id = keygrip_slot_id
+            else:
+                this_slot_id = self.dkeyslot
             raw_message = pubkey
         log.info('Key Slot =%s', this_slot_id)
         log.info('data hash =%s', data)

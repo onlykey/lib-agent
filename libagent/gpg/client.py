@@ -8,10 +8,11 @@ from ..device import interface
 log = logging.getLogger(__name__)
 
 
-def create_identity(user_id, curve_name):
+def create_identity(user_id, curve_name, keygrip = None):
     """Create GPG identity for hardware device."""
     result = interface.Identity(identity_str='gpg://', curve_name=curve_name)
     result.identity_dict['host'] = user_id
+    result.identity_dict['keygrip'] = keygrip
     return result
 
 

@@ -193,7 +193,7 @@ class Handler:
         if pubkey_dict['algo'] not in {1, 2, 3}:
             curve_name = protocol.get_curve_name_by_oid(pubkey_dict['curve_oid'])
             ecdh = (pubkey_dict['algo'] == protocol.ECDH_ALGO_ID)
-            identity = client.create_identity(user_id=user_id, curve_name=curve_name)
+            identity = client.create_identity(user_id=user_id, curve_name=curve_name, keygrip=keygrip)
             verifying_key = self.client.pubkey(identity=identity, ecdh=ecdh)
             pubkey = protocol.PublicKey(
                 curve_name=curve_name, created=pubkey_dict['created'],
@@ -201,22 +201,22 @@ class Handler:
             assert pubkey.key_id() == pubkey_dict['key_id']
             assert pubkey.keygrip() == keygrip_bytes
         elif len(pubkey_dict['_to_hash']) < 350:
-            identity = client.create_identity(user_id=user_id, curve_name='rsa2048')
+            identity = client.create_identity(user_id=user_id, curve_name='rsa2048', keygrip=keygrip)
             verifying_key = self.client.pubkey(identity=identity, ecdh=False)
             pubkey = protocol.PublicKey(
-            curve_name='rsa2048', created=pubkey_dict['created'],
-            verifying_key=verifying_key, ecdh=False)
+                curve_name='rsa2048', created=pubkey_dict['created'],
+                verifying_key=verifying_key, ecdh=False)
         elif len(pubkey_dict['_to_hash']) < 700:
-            identity = client.create_identity(user_id=user_id, curve_name='rsa4096')
+            identity = client.create_identity(user_id=user_id, curve_name='rsa4096', keygrip=keygrip)
             verifying_key = self.client.pubkey(identity=identity, ecdh=False)
             pubkey = protocol.PublicKey(
-            curve_name='rsa4096', created=pubkey_dict['created'],
-            verifying_key=verifying_key, ecdh=False)   
+                curve_name='rsa4096', created=pubkey_dict['created'],
+                verifying_key=verifying_key, ecdh=False)
         else:
             identity = 'unknown identity type'
             log.error(identity)
-            
-        log.info('IDENTITY(%s)', identity)   
+
+        log.info('IDENTITY(%s)', identity)
         return identity
 
     def pksign(self, conn):
