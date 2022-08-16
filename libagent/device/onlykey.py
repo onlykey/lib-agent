@@ -73,6 +73,8 @@ class OnlyKey(interface.Device):
         # self.import_pubkey_bytes = bytes(self.import_pubkey_obj)
 
     def get_key_by_keygrip(self, keygrip):
+        if keygrip is None:
+            return None
         keygriplong = keygrip
         keygrip = keygrip[:16]
         log.info(keygrip)
