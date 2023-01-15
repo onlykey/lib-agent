@@ -33,6 +33,7 @@ class Client:
         """Sign given blob using a private key on the device."""
         log.debug('blob: %r', blob)
         msg = parse_ssh_blob(blob)
+        log.debug('parsed blob: %r', msg)
         if msg['sshsig']:
             log.info('please confirm "%s" signature for "%s" using %s...',
                      msg['namespace'], identity.to_string(), self.device)
@@ -68,6 +69,8 @@ def parse_ssh_blob(data):
         res['reserved'] = util.read_frame(i)
         res['hashalg'] = util.read_frame(i)
         res['message'] = util.read_frame(i)
+        res['user'] = b'SSHSIG' # logging statements in client.py expect this to be there and raise without it
+        res['key_type'] = res['hashalg'] # logging statements in client.py expect this to be there and raise without it
     else:
         i = io.BytesIO(data)
         res['sshsig'] = False
