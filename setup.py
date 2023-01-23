@@ -7,7 +7,7 @@ setup(
     description='Using OnlyKey as hardware SSH and GPG agent',
     author='CryptoTrust',
     author_email='admin@crp.to',
-    url='http://github.com/onlykey/onlykey-agent',
+    url='https://github.com/onlykey/lib-agent',
     packages=[
         'libagent',
         'libagent.age',
