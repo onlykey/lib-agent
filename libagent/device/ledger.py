@@ -38,6 +38,24 @@ def _convert_public_key(ecdsa_curve_name, result):
 class LedgerNanoS(interface.Device):
     """Connection to Ledger Nano S device."""
 
+    LEDGER_APP_NAME = "SSH/PGP Agent"
+    ledger_app_version = None
+    ledger_app_supports_end_of_frame_byte = True
+
+    def get_app_name_and_version(self, dongle):
+        """Retrieve currently running Ledger application name and its version string."""
+        device_version_answer = dongle.exchange(binascii.unhexlify('B001000000'))
+        offset = 1
+        app_name_length = struct.unpack_from("B", device_version_answer, offset)[0]
+        offset += 1
+        app_name = device_version_answer[offset: offset + app_name_length]
+        offset += app_name_length
+        app_version_length = struct.unpack_from("B", device_version_answer, offset)[0]
+        offset += 1
+        app_version = device_version_answer[offset: offset + app_version_length]
+        log.debug("running app %s, version %s", app_name, app_version)
+        return (app_name.decode(), app_version.decode())
+
     @classmethod
     def package_name(cls):
         """Python package name (at PyPI)."""
@@ -46,10 +64,21 @@ class LedgerNanoS(interface.Device):
     def connect(self):
         """Enumerate and connect to the first USB HID interface."""
         try:
-            return comm.getDongle()
+            dongle = comm.getDongle(debug=True)
+            (app_name, self.ledger_app_version) = self.get_app_name_and_version(dongle)
+
+            version_parts = self.ledger_app_version.split(".")
+            if (version_parts[0] == "0" and version_parts[1] == "0" and int(version_parts[2]) <= 7):
+                self.ledger_app_supports_end_of_frame_byte = False
+
+            if app_name != LedgerNanoS.LEDGER_APP_NAME:
+                # we could launch the app here if we are in the dashboard
+                raise interface.DeviceError(f'{self} is not running {LedgerNanoS.LEDGER_APP_NAME}')
+
+            return dongle
         except comm.CommException as e:
-            raise interface.NotFoundError(
-                '{} not connected: "{}"'.format(self, e))
+            raise interface.DeviceError(
+                'Error ({}) communicating with {}'.format(e, self))
 
     def pubkey(self, identity, ecdh=False):
         """Get PublicKey object for specified BIP32 address and elliptic curve."""
@@ -72,24 +101,44 @@ class LedgerNanoS(interface.Device):
 
     def sign(self, identity, blob):
         """Sign given blob and return the signature (as bytes)."""
+        # pylint: disable=too-many-locals,too-many-branches
         path = _expand_path(identity.get_bip32_address(ecdh=False))
-        if identity.identity_dict['proto'] == 'ssh':
-            ins = '04'
-            p1 = '00'
-        else:
-            ins = '08'
-            p1 = '00'
-        if identity.curve_name == 'nist256p1':
-            p2 = '81' if identity.identity_dict['proto'] == 'ssh' else '01'
-        else:
-            p2 = '82' if identity.identity_dict['proto'] == 'ssh' else '02'
-        apdu = '80' + ins + p1 + p2
-        apdu = binascii.unhexlify(apdu)
-        apdu += bytearray([len(blob) + len(path) + 1])
-        apdu += bytearray([len(path) // 4]) + path
-        apdu += blob
-        log.debug('apdu: %r', apdu)
-        result = bytearray(self.conn.exchange(bytes(apdu)))
+        offset = 0
+        result = None
+        while offset != len(blob):
+            data = bytes()
+            if offset == 0:
+                data += bytearray([len(path) // 4]) + path
+            chunk_size = min(len(blob) - offset, 255 - len(data))
+            data += blob[offset:offset + chunk_size]
+
+            if identity.identity_dict['proto'] == 'ssh':
+                ins = '04'
+            else:
+                ins = '08'
+
+            if identity.curve_name == 'nist256p1':
+                p2 = '81' if identity.identity_dict['proto'] == 'ssh' else '01'
+            else:
+                p2 = '82' if identity.identity_dict['proto'] == 'ssh' else '02'
+
+            if offset + chunk_size == len(blob) and self.ledger_app_supports_end_of_frame_byte:
+                # mark that we are at the end of the frame
+                p1 = "80" if offset == 0 else "81"
+            else:
+                p1 = "00" if offset == 0 else "01"
+
+            apdu = binascii.unhexlify('80' + ins + p1 + p2) + len(data).to_bytes(1, 'little') + data
+
+            log.debug('apdu: %r', apdu)
+            try:
+                result = bytearray(self.conn.exchange(bytes(apdu)))
+            except comm.CommException as e:
+                raise interface.DeviceError(
+                    'Error ({}) communicating with {}'.format(e, self))
+
+            offset += chunk_size
+
         log.debug('result: %r', result)
         if identity.curve_name == 'nist256p1':
             offset = 3
@@ -120,7 +169,11 @@ class LedgerNanoS(interface.Device):
         apdu += bytearray([len(path) // 4]) + path
         apdu += pubkey
         log.debug('apdu: %r', apdu)
-        result = bytearray(self.conn.exchange(bytes(apdu)))
+        try:
+            result = bytearray(self.conn.exchange(bytes(apdu)))
+        except comm.CommException as e:
+            raise interface.DeviceError(
+                'Error ({}) communicating with {}'.format(e, self))
         log.debug('result: %r', result)
         assert result[0] == 0x04
         return bytes(result)

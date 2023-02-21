@@ -78,12 +78,12 @@ def test_server_thread():
     quit_event = threading.Event()
 
     class FakeServer:
-        def accept(self):  # pylint: disable=no-self-use
+        def accept(self):
             if not connections:
                 raise socket.timeout()
             return connections.pop(), 'address'
 
-        def getsockname(self):  # pylint: disable=no-self-use
+        def getsockname(self):
             return 'fake_server'
 
     def handle_conn(conn):
@@ -102,7 +102,7 @@ def test_spawn():
     def thread(x):
         obj.append(x)
 
-    with server.spawn(thread, dict(x=1)):
+    with server.spawn(thread, {'x': 1}):
         pass
 
     assert obj == [1]
