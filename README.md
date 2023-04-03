@@ -37,8 +37,6 @@ releases.
 * **Installation** instructions are [here](doc/INSTALL.md)
 * **SSH** instructions and common use cases are [here](doc/README-SSH.md)
 
-    Note: If you're using Windows, see [trezor-ssh-agent](https://github.com/martin-lizner/trezor-ssh-agent) by Martin Lízner.
-
 * **GPG** instructions and common use cases are [here](doc/README-GPG.md)
 * **age** instructions and common use cases are [here](doc/README-age.md)
 * Instructions to configure a Trezor-style **PIN entry** program are [here](doc/README-PINENTRY.md)
