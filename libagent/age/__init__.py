@@ -9,21 +9,17 @@ See these links for more details:
 
 import argparse
 import base64
-import contextlib
-import datetime
 import io
 import logging
 import os
 import sys
-import traceback
+from importlib import metadata
 
 import bech32
-import pkg_resources
-import semver
 from cryptography.exceptions import InvalidTag
 from cryptography.hazmat.primitives.ciphers.aead import ChaCha20Poly1305
 
-from .. import device, server, util
+from .. import device, util
 from . import client
 
 log = logging.getLogger(__name__)
@@ -125,9 +121,7 @@ def run_decrypt(device_type, args):
     for file_index, stanzas in stanza_map.items():
         _handle_single_file(file_index, stanzas, identities, c)
 
-    sys.stdout.write('-> done\n\n')
-    sys.stdout.flush()
-    sys.stdout.close()
+    send('-> done\n\n')
 
 
 def _handle_single_file(file_index, stanzas, identities, c):
@@ -135,18 +129,23 @@ def _handle_single_file(file_index, stanzas, identities, c):
     for peer_pubkey, encrypted in stanzas:
         for identity in identities:
             id_str = identity.to_string()
-            msg = base64_encode(f'Please confirm {id_str} decryption on {d} device...'.encode())
-            sys.stdout.write(f'-> msg\n{msg}\n')
-            sys.stdout.flush()
+            msg = f'Please confirm {id_str} decryption on {d} device...'
+            send(f'-> msg\n{base64_encode(msg.encode())}\n')
 
             key = c.ecdh(identity=identity, peer_pubkey=peer_pubkey)
+
             result = decrypt(key=key, encrypted=encrypted)
             if not result:
                 continue
 
-            sys.stdout.write(f'-> file-key {file_index}\n{base64_encode(result)}\n')
-            sys.stdout.flush()
+            send(f'-> file-key {file_index}\n{base64_encode(result)}\n')
             return
+
+
+def send(msg):
+    """Send a response back to `age` binary."""
+    sys.stdout.buffer.write(msg.encode())
+    sys.stdout.flush()
 
 
 def main(device_type):
@@ -154,9 +153,8 @@ def main(device_type):
     p = argparse.ArgumentParser()
 
     agent_package = device_type.package_name()
-    resources_map = {r.key: r for r in pkg_resources.require(agent_package)}
-    resources = [resources_map[agent_package], resources_map['lib-agent']]
-    versions = '\n'.join('{}={}'.format(r.key, r.version) for r in resources)
+    resources = [metadata.distribution(agent_package), metadata.distribution('lib-agent')]
+    versions = '\n'.join('{}={}'.format(r.metadata['Name'], r.version) for r in resources)
     p.add_argument('--version', help='print the version info',
                    action='version', version=versions)
 
@@ -176,8 +174,10 @@ def main(device_type):
     try:
         if args.identity:
             run_pubkey(device_type=device_type, args=args)
-        elif args.age_plugin:
+        elif args.age_plugin == 'identity-v1':
             run_decrypt(device_type=device_type, args=args)
+        else:
+            log.error("Unsupported state machine: %r", args.age_plugin)
     except Exception as e:  # pylint: disable=broad-except
         log.exception("age plugin failed: %s", e)
 

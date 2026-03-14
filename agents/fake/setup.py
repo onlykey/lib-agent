@@ -7,10 +7,11 @@ print('ONLY FOR DEBUGGING AND TESTING!!!')
 setup(
     name='fake_device_agent',
     version='0.9.0',
-    description='Testing trezor_agent with a fake device - NOT SAFE!!!',
+    description='Testing SSH/GPG agent with a fake device - NOT SAFE!!!',
     author='Roman Zeyde',
-    author_email='roman.zeyde@gmail.com',
+    author_email='dev@romanzey.de',
     url='http://github.com/romanz/trezor-agent',
+    python_requires='>=3.8',
     scripts=['fake_device_agent.py'],
     install_requires=[
         'libagent>=0.9.0',

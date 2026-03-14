@@ -188,36 +188,47 @@ class Handler:
         keygrip_bytes = binascii.unhexlify(keygrip)
         pubkey_dict, user_ids = decode.load_by_keygrip(
             pubkey_bytes=self.pubkey_bytes, keygrip=keygrip_bytes)
-        # We assume the first user ID is used to generate Agent-based GPG keys.
-        user_id = user_ids[0]['value'].decode('utf-8')
-        if pubkey_dict['algo'] not in {1, 2, 3}:
-            curve_name = protocol.get_curve_name_by_oid(pubkey_dict['curve_oid'])
-            ecdh = (pubkey_dict['algo'] == protocol.ECDH_ALGO_ID)
-            identity = client.create_identity(user_id=user_id, curve_name=curve_name, keygrip=keygrip)
-            verifying_key = self.client.pubkey(identity=identity, ecdh=ecdh)
-            pubkey = protocol.PublicKey(
-                curve_name=curve_name, created=pubkey_dict['created'],
-                verifying_key=verifying_key, ecdh=ecdh)
-            assert pubkey.key_id() == pubkey_dict['key_id']
-            assert pubkey.keygrip() == keygrip_bytes
-        elif len(pubkey_dict['_to_hash']) < 350:
-            identity = client.create_identity(user_id=user_id, curve_name='rsa2048', keygrip=keygrip)
-            verifying_key = self.client.pubkey(identity=identity, ecdh=False)
-            pubkey = protocol.PublicKey(
-                curve_name='rsa2048', created=pubkey_dict['created'],
-                verifying_key=verifying_key, ecdh=False)
-        elif len(pubkey_dict['_to_hash']) < 700:
-            identity = client.create_identity(user_id=user_id, curve_name='rsa4096', keygrip=keygrip)
-            verifying_key = self.client.pubkey(identity=identity, ecdh=False)
-            pubkey = protocol.PublicKey(
-                curve_name='rsa4096', created=pubkey_dict['created'],
-                verifying_key=verifying_key, ecdh=False)
-        else:
-            identity = 'unknown identity type'
-            log.error(identity)
+        log.debug("pubkey_dict %s", pubkey_dict)
 
-        log.info('IDENTITY(%s)', identity)
-        return identity
+        if pubkey_dict['algo'] not in {1, 2, 3}:
+            # ECC key - lookup the first user ID that matches the provided keygrip
+            curve_name = protocol.get_curve_name_by_oid(pubkey_dict['curve_oid'])
+            ecdh = pubkey_dict['algo'] == protocol.ECDH_ALGO_ID
+
+            for user_id_dict in user_ids:
+                log.debug("user_id: %s", user_id_dict)
+                user_id = user_id_dict['value'].decode('utf-8')
+
+                identity = client.create_identity(user_id=user_id, curve_name=curve_name, keygrip=keygrip)
+                verifying_key = self.client.pubkey(identity=identity, ecdh=ecdh)
+                pubkey = protocol.PublicKey(
+                    curve_name=curve_name, created=pubkey_dict['created'],
+                    verifying_key=verifying_key, ecdh=ecdh)
+
+                if pubkey.keygrip() == keygrip_bytes and pubkey.key_id() == pubkey_dict['key_id']:
+                    return identity
+
+            raise KeyError(keygrip)
+        else:
+            # RSA key
+            user_id = user_ids[0]['value'].decode('utf-8')
+            if len(pubkey_dict['_to_hash']) < 350:
+                identity = client.create_identity(user_id=user_id, curve_name='rsa2048', keygrip=keygrip)
+                verifying_key = self.client.pubkey(identity=identity, ecdh=False)
+                pubkey = protocol.PublicKey(
+                    curve_name='rsa2048', created=pubkey_dict['created'],
+                    verifying_key=verifying_key, ecdh=False)
+            elif len(pubkey_dict['_to_hash']) < 700:
+                identity = client.create_identity(user_id=user_id, curve_name='rsa4096', keygrip=keygrip)
+                verifying_key = self.client.pubkey(identity=identity, ecdh=False)
+                pubkey = protocol.PublicKey(
+                    curve_name='rsa4096', created=pubkey_dict['created'],
+                    verifying_key=verifying_key, ecdh=False)
+            else:
+                raise KeyError('unknown RSA key type for keygrip {}'.format(keygrip))
+
+            log.info('IDENTITY(%s)', identity)
+            return identity
 
     def pksign(self, conn):
         """Sign a message digest using a private EC key."""
