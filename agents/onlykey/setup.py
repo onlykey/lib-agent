@@ -37,5 +37,6 @@ setup(
         'onlykey-agent = onlykey_agent:ssh_agent',
         'onlykey-gpg = onlykey_agent:gpg_tool',
         'onlykey-gpg-agent = onlykey_agent:gpg_agent',
+        'age-plugin-onlykey = onlykey_agent:age_plugin',
     ]},
 )

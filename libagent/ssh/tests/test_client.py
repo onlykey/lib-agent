@@ -116,10 +116,12 @@ def test_parse_ssh_signature():
     result = client.parse_ssh_blob(FILE_SIG_BLOB)
     assert result == {
         'hashalg': b'sha512',
+        'key_type': b'sha512',
         'message': b'r\xb7r\xfeM\xe5w\xf0#w\x1dbl\xca\to=\x90\xb69\xd1:u{'
                    b'\xe5\xe4\xf1\xb1\xa8C\xb8\xfcM\x91\x9f\x12\xa8\x1d`\x00\x848C<'
                    b"\x85\x8e\xf0o\xdab\xdcQ\xce\xf2\xda\xc3\xae\xa9\x1e%\x85\xcd\xe3'",
         'namespace': b'file',
         'reserved': b'',
         'sshsig': True,
+        'user': b'SSHSIG',
     }

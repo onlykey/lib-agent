@@ -490,6 +490,39 @@ class OnlyKey(interface.Device):
         self.ok.close()
         return bytes(result)
 
+    def xwing_keygen(self):
+        """Generate X-Wing keypair on device. Returns 1216-byte public key."""
+        try:
+            from onlykey.age_plugin.onlykey_hid import OnlyKeyPQ
+        except ImportError:
+            raise interface.Error(
+                'Post-quantum support requires onlykey[age]: '
+                'pip install onlykey[age]')
+        pq = OnlyKeyPQ(ok=self.ok)
+        return pq.xwing_keygen()
+
+    def xwing_getpubkey(self):
+        """Get X-Wing public key from device. Returns 1216-byte public key."""
+        try:
+            from onlykey.age_plugin.onlykey_hid import OnlyKeyPQ
+        except ImportError:
+            raise interface.Error(
+                'Post-quantum support requires onlykey[age]: '
+                'pip install onlykey[age]')
+        pq = OnlyKeyPQ(ok=self.ok)
+        return pq.xwing_getpubkey()
+
+    def xwing_decaps(self, ciphertext):
+        """X-Wing decapsulation on device. Returns 32-byte shared secret."""
+        try:
+            from onlykey.age_plugin.onlykey_hid import OnlyKeyPQ
+        except ImportError:
+            raise interface.Error(
+                'Post-quantum support requires onlykey[age]: '
+                'pip install onlykey[age]')
+        pq = OnlyKeyPQ(ok=self.ok)
+        return pq.xwing_decaps(ciphertext)
+
 
 def get_button(self, byte):
     """Return button number."""
