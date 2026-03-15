@@ -8,6 +8,7 @@ setup(
     author='CryptoTrust',
     author_email='admin@crp.to',
     url='http://github.com/trustcrypto/onlykey-agent',
+    python_requires='>=3.8',
     scripts=['onlykey_agent.py'],
     install_requires=[
         'lib-agent>=1.0.6',
@@ -36,5 +37,6 @@ setup(
         'onlykey-agent = onlykey_agent:ssh_agent',
         'onlykey-gpg = onlykey_agent:gpg_tool',
         'onlykey-gpg-agent = onlykey_agent:gpg_agent',
+        'age-plugin-onlykey = onlykey_agent:age_plugin',
     ]},
 )

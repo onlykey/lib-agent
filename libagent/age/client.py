@@ -46,3 +46,21 @@ class Client:
                  salt=((peer_pubkey + self_pubkey)),
                  info=b"age-encryption.org/v1/X25519")
             return hkdf.derive(result[1:])
+
+    def xwing_keygen(self):
+        """Generate X-Wing keypair on device. Returns 1216-byte public key."""
+        log.info('generating X-Wing keypair on %s...', self.device)
+        with self.device:
+            return self.device.xwing_keygen()
+
+    def xwing_getpubkey(self):
+        """Get X-Wing public key from device. Returns 1216-byte public key."""
+        log.info('retrieving X-Wing public key from %s...', self.device)
+        with self.device:
+            return self.device.xwing_getpubkey()
+
+    def xwing_decaps(self, ciphertext):
+        """X-Wing decapsulation on device. Returns 32-byte shared secret."""
+        log.info('please confirm X-Wing decryption on %s...', self.device)
+        with self.device:
+            return self.device.xwing_decaps(ciphertext)

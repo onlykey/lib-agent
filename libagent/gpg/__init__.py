@@ -14,12 +14,16 @@ import functools
 import logging
 import os
 import re
+import stat
 import subprocess
 import sys
-import time
+from importlib import metadata
 
-import daemon
-import pkg_resources
+try:
+    # TODO: Not supported on Windows. Use daemoniker instead?
+    import daemon
+except ImportError:
+    daemon = None
 import semver
 import Crypto.Hash
 import Crypto.PublicKey
@@ -49,6 +53,7 @@ def export_public_key(device_type, args):
     verifying_key = c.pubkey(identity=identity, ecdh=False)
     decryption_key = c.pubkey(identity=identity, ecdh=True)
     signer_func = functools.partial(c.sign, identity=identity)
+    fingerprints = []
 
     if args.subkey:  # add as subkey
         log.info('adding %s GPG subkey for "%s" to existing key',
@@ -57,10 +62,12 @@ def export_public_key(device_type, args):
         signing_key = protocol.PublicKey(
             curve_name=args.ecdsa_curve, created=args.time,
             verifying_key=verifying_key, ecdh=False)
+        fingerprints.append(util.hexlify(signing_key.fingerprint()))
         # subkey for encryption
         encryption_key = protocol.PublicKey(
             curve_name=formats.get_ecdh_curve_name(args.ecdsa_curve),
             created=args.time, verifying_key=decryption_key, ecdh=True)
+        fingerprints.append(util.hexlify(encryption_key.fingerprint()))
         primary_bytes = keyring.export_public_key(args.user_id)
         result = encode.create_subkey(primary_bytes=primary_bytes,
                                       subkey=signing_key,
@@ -75,10 +82,12 @@ def export_public_key(device_type, args):
         primary = protocol.PublicKey(
             curve_name=args.ecdsa_curve, created=args.time,
             verifying_key=verifying_key, ecdh=False)
+        fingerprints.append(util.hexlify(primary.fingerprint()))
         # subkey for encryption
         subkey = protocol.PublicKey(
             curve_name=formats.get_ecdh_curve_name(args.ecdsa_curve),
             created=args.time, verifying_key=decryption_key, ecdh=True)
+        fingerprints.append(util.hexlify(subkey.fingerprint()))
 
         result = encode.create_primary(user_id=args.user_id,
                                        pubkey=primary,
@@ -87,7 +96,7 @@ def export_public_key(device_type, args):
                                       subkey=subkey,
                                       signer_func=signer_func)
 
-    return protocol.armor(result, 'PUBLIC KEY BLOCK')
+    return (fingerprints, protocol.armor(result, 'PUBLIC KEY BLOCK'))
 
 
 def verify_gpg_version():
@@ -108,10 +117,10 @@ def check_output(args):
     return out
 
 
-def check_call(args, stdin=None, env=None):
+def check_call(args, stdin=None, input_bytes=None, env=None):
     """Runs command and verifies its success."""
     log.debug('run: %s%s', args, ' {}'.format(env) if env else '')
-    subprocess.check_call(args=args, stdin=stdin, env=env)
+    subprocess.run(args=args, stdin=stdin, input=input_bytes, env=env, check=True)
 
 
 def write_file(path, data):
@@ -148,8 +157,10 @@ def run_init(device_type, args):
                   'remove it manually if required', homedir)
         sys.exit(1)
 
-    check_call(['mkdir', '-p', homedir])
-    check_call(['chmod', '700', homedir])
+    # Prepare the key before making any changes
+    fingerprints, public_key_bytes = export_public_key(device_type, args)
+
+    os.makedirs(homedir, mode=0o700)
 
     agent_path = util.which('{}-gpg-agent'.format(device_name))
 
@@ -160,35 +171,45 @@ def run_init(device_type, args):
                 device_type.import_pub(device_type, f.read())
         with open(os.path.join(homedir, 'run-agent.sh'), 'w') as f:
             f.write(r"""#!/bin/sh
-    export PATH="{0}"
-    {1} \
-    -vv \
-    --skey-slot={skey} \
-    --dkey-slot={dkey} \
-    $*
-    """.format(os.environ['PATH'], agent_path, **vars(args)))
+export PATH="{0}"
+"{1}" \
+-vv \
+--skey-slot={skey} \
+--dkey-slot={dkey} \
+$*
+""".format(util.escape_cmd_quotes(os.environ['PATH']),
+           util.escape_cmd_quotes(agent_path), **vars(args)))
     else:
-        with open(os.path.join(homedir, 'run-agent.sh'), 'w') as f:
-            f.write(r"""#!/bin/sh
-    export PATH="{0}"
-    {1} \
-    -vv \
-    --pin-entry-binary={pin_entry_binary} \
-    --passphrase-entry-binary={passphrase_entry_binary} \
-    --cache-expiry-seconds={cache_expiry_seconds} \
-    $*
-    """.format(os.environ['PATH'], agent_path, **vars(args)))
-
-    check_call(['chmod', '700', f.name])
+        with open(os.path.join(homedir, ('run-agent.sh'
+                                         if sys.platform != 'win32' else
+                                         'run-agent.bat')), 'w') as f:
+            if sys.platform != 'win32':
+                f.write(r"""#!/bin/sh
+export PATH="{0}"
+""".format(util.escape_cmd_quotes(os.environ['PATH'])))
+            else:
+                f.write(r"""@echo off
+set PATH={0}
+""".format(util.escape_cmd_win(os.environ['PATH'])))
+            f.write('"{0}" -vv'.format(util.escape_cmd_quotes(agent_path)))
+            for arg in ['pin_entry_binary', 'passphrase_entry_binary', 'cache_expiry_seconds']:
+                if hasattr(args, arg):
+                    f.write(' "--{0}={1}"'.format(arg.replace('_', '-'),
+                                                  util.escape_cmd_quotes(getattr(args, arg))))
+            if sys.platform != 'win32':
+                f.write(' $*\n')
+            else:
+                f.write(' %*\n')
+    os.chmod(f.name, 0o700)
     run_agent_script = f.name
 
     # Prepare GPG configuration file
     with open(os.path.join(homedir, 'gpg.conf'), 'w') as f:
         f.write("""# Hardware-based GPG configuration
-agent-program {0}
+agent-program "{0}"
 personal-digest-preferences SHA512
-default-key \"{1}\"
-""".format(run_agent_script, args.user_id))
+default-key {1}
+""".format(util.escape_cmd_quotes(run_agent_script), fingerprints[0]))
 
     # Prepare a helper script for setting up the new identity
     with open(os.path.join(homedir, 'env'), 'w') as f:
@@ -203,24 +224,19 @@ else
     ${{COMMAND}}
 fi
 """.format(homedir))
-    check_call(['chmod', '700', f.name])
-   
+    os.chmod(f.name, 0o700)
+
+
     # Generate new GPG identity and import into GPG keyring
-    pubkey = write_file(os.path.join(homedir, 'pubkey.asc'),
-                        export_public_key(device_type, args))
     verbosity = ('-' + ('v' * args.verbose)) if args.verbose else '--quiet'
     check_call(keyring.gpg_command(['--homedir', homedir, verbosity,
-                                    '--import', pubkey.name]))
+                                    '--import']),
+               input_bytes=public_key_bytes.encode())
 
     # Make new GPG identity with "ultimate" trust (via its fingerprint)
-    out = check_output(keyring.gpg_command(['--homedir', homedir,
-                                            '--list-public-keys',
-                                            '--with-fingerprint',
-                                            '--with-colons']))
-    fpr = re.findall('fpr:::::::::([0-9A-F]+):', out)[0]
-    f = write_file(os.path.join(homedir, 'ownertrust.txt'), fpr + ':6\n')
     check_call(keyring.gpg_command(['--homedir', homedir,
-                                    '--import-ownertrust', f.name]))
+                                    '--import-ownertrust']),
+               input_bytes=(fingerprints[0] + ':6\n').encode())
 
     # Load agent and make sure it responds with the new identity
     check_call(keyring.gpg_command(['--homedir', homedir,
@@ -266,12 +282,13 @@ def run_agent(device_type):
                        help='Path to passphrase entry UI helper.')
         p.add_argument('--cache-expiry-seconds', type=float, default=float('inf'),
                        help='Expire passphrase from cache after this duration.')
-    p.add_argument('--daemon', default=False, action='store_true',
-                   help='Daemonize the agent.')
+    if daemon:
+        p.add_argument('--daemon', default=False, action='store_true',
+                       help='Daemonize the agent.')
 
     args, _ = p.parse_known_args()
 
-    if args.daemon:
+    if daemon and args.daemon:
         with daemon.DaemonContext():
             run_agent_internal(args, device_type)
     else:
@@ -328,9 +345,8 @@ def main(device_type):
     parser = argparse.ArgumentParser(epilog=epilog)
 
     agent_package = device_type.package_name()
-    resources_map = {r.key: r for r in pkg_resources.require(agent_package)}
-    resources = [resources_map[agent_package], resources_map['lib-agent']]
-    versions = '\n'.join('{}={}'.format(r.key, r.version) for r in resources)
+    resources = [metadata.distribution(agent_package), metadata.distribution('lib-agent')]
+    versions = '\n'.join('{}={}'.format(r.metadata['Name'], r.version) for r in resources)
     parser.add_argument('--version', help='print the version info',
                         action='version', version=versions)
 
