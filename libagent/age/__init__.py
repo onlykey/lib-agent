@@ -9,6 +9,7 @@ See these links for more details:
 
 import argparse
 import base64
+import hashlib
 import io
 import logging
 import os
@@ -27,6 +28,8 @@ log = logging.getLogger(__name__)
 # X-Wing / ML-KEM-768 constants
 XWING_CT_SIZE = 1120
 XWING_PK_SIZE = 1216
+XWING_FINGERPRINT_LEN = 8
+XWING_IDENTITY_VERSION = 1
 
 
 def bech32_decode(prefix, encoded):
@@ -68,9 +71,33 @@ def run_pubkey_x25519(c, args):
     print(encoded)
 
 
+def _recipient_fingerprint(pubkey):
+    """Return a short fingerprint of an X-Wing public key for identity binding."""
+    return hashlib.sha256(pubkey).digest()[:XWING_FINGERPRINT_LEN]
+
+
+def _encode_pq_identity(slot, fingerprint):
+    """Encode a versioned PQ identity: version(1) + slot(1) + fingerprint(8)."""
+    payload = bytes([XWING_IDENTITY_VERSION, slot]) + fingerprint
+    return bech32_encode("age-plugin-onlykey-", payload).upper()
+
+
+def _decode_pq_identity(encoded):
+    """Decode a PQ identity string. Returns dict with slot, fingerprint, legacy."""
+    data = bech32_decode("age-plugin-onlykey-", encoded.lower())
+    if len(data) == 1:
+        return {"slot": data[0], "fingerprint": None, "legacy": True}
+    if len(data) != 2 + XWING_FINGERPRINT_LEN:
+        raise ValueError(f"Invalid PQ identity payload length: {len(data)}")
+    version = data[0]
+    if version != XWING_IDENTITY_VERSION:
+        raise ValueError(f"Unsupported PQ identity version: {version}")
+    return {"slot": data[1], "fingerprint": data[2:], "legacy": False}
+
+
 def run_pubkey_pq(c):
     """Generate X-Wing (post-quantum) age recipient."""
-    from onlykey.age_plugin.cli import encode_recipient, encode_identity
+    from onlykey.age_plugin.cli import encode_recipient
     from onlykey.age_plugin import SLOT_XWING
 
     print("Generating X-Wing keypair on OnlyKey...", file=sys.stderr)
@@ -78,9 +105,10 @@ def run_pubkey_pq(c):
     assert len(pk) == XWING_PK_SIZE
 
     recipient = encode_recipient(pk)
-    identity = encode_identity(SLOT_XWING)
+    fingerprint = _recipient_fingerprint(pk)
+    identity = _encode_pq_identity(SLOT_XWING, fingerprint)
 
-    print(f"# X-Wing public key (age v1.3.0 mlkem768x25519 compatible)",
+    print("# X-Wing public key (produces native age mlkem768x25519 stanzas)",
           file=sys.stderr)
     print(f"# Recipient: {recipient}", file=sys.stderr)
     print(file=sys.stderr)
@@ -131,6 +159,7 @@ def run_decrypt(device_type, args):
     lines = (line for line in lines if line)  # skip empty lines
 
     identities = []
+    raw_identity_strings = []
     x25519_stanzas = {}
     pq_stanzas = {}
 
@@ -141,6 +170,7 @@ def run_decrypt(device_type, args):
 
         if line.startswith("-> add-identity "):
             encoded = line.split(" ")[-1].lower()
+            raw_identity_strings.append(encoded)
             data = bech32_decode("age-plugin-onlykey-", encoded)
             identity = client.create_identity(data.decode())
             identities.append(identity)
@@ -170,8 +200,12 @@ def run_decrypt(device_type, args):
         _handle_single_file(file_index, stanzas, identities, c)
 
     # Handle mlkem768x25519 (post-quantum) stanzas
-    for file_index, stanzas in pq_stanzas.items():
-        _handle_single_file_pq(file_index, stanzas, c)
+    if pq_stanzas:
+        if _verify_pq_device(c, raw_identity_strings):
+            for file_index, stanzas in pq_stanzas.items():
+                _handle_single_file_pq(file_index, stanzas, c)
+        else:
+            log.error("Skipping PQ decryption: device verification failed")
 
     send('-> done\n\n')
 
@@ -193,6 +227,48 @@ def _handle_single_file(file_index, stanzas, identities, c):
 
             send(f'-> file-key {file_index}\n{base64_encode(result)}\n')
             return
+
+
+def _verify_pq_device(c, identities):
+    """Verify device X-Wing pubkey matches at least one identity fingerprint.
+
+    Returns True if a matching identity is found (or a legacy identity with
+    no fingerprint is present). Returns False if no identity matches.
+    """
+    from onlykey.age_plugin import SLOT_XWING
+
+    parsed = []
+    for encoded in identities:
+        try:
+            info = _decode_pq_identity(encoded)
+            if info["slot"] == SLOT_XWING:
+                parsed.append(info)
+        except ValueError:
+            continue
+
+    if not parsed:
+        log.warning("No valid PQ identities with X-Wing slot found")
+        return False
+
+    # If any identity is legacy (no fingerprint), skip verification
+    if any(p["legacy"] for p in parsed):
+        log.debug("Legacy PQ identity found, skipping fingerprint check")
+        return True
+
+    device_pk = c.xwing_getpubkey()
+    if len(device_pk) != XWING_PK_SIZE:
+        log.error("Device returned unexpected X-Wing pubkey length: %d",
+                  len(device_pk))
+        return False
+
+    device_fp = _recipient_fingerprint(device_pk)
+    for p in parsed:
+        if p["fingerprint"] == device_fp:
+            log.debug("Device fingerprint matches identity")
+            return True
+
+    log.error("OnlyKey X-Wing pubkey does not match any supplied identity")
+    return False
 
 
 def _handle_single_file_pq(file_index, stanzas, c):
