@@ -19,7 +19,6 @@ import sys
 import time
 
 import daemon
-import pkg_resources
 import semver
 import Crypto.Hash
 import Crypto.PublicKey
@@ -27,6 +26,7 @@ import Crypto.Signature
 from Crypto.Signature import pkcs1_15
 from Crypto.Hash import SHA256, SHA512
 from Crypto.PublicKey import RSA
+from importlib import metadata
 
 from .. import device, formats, server, util
 from . import agent, client, encode, keyring, protocol
@@ -328,9 +328,8 @@ def main(device_type):
     parser = argparse.ArgumentParser(epilog=epilog)
 
     agent_package = device_type.package_name()
-    resources_map = {r.key: r for r in pkg_resources.require(agent_package)}
-    resources = [resources_map[agent_package], resources_map['lib-agent']]
-    versions = '\n'.join('{}={}'.format(r.key, r.version) for r in resources)
+    resources = [metadata.distribution(agent_package), metadata.distribution('lib-agent')]
+    versions = '\n'.join('{}={}'.format(r.metadata['Name'], r.version) for r in resources)
     parser.add_argument('--version', help='print the version info',
                         action='version', version=versions)
 
