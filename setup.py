@@ -22,10 +22,7 @@ setup(
         'pycryptodome>=3.9.8',
         'docutils>=0.16',
         'python-daemon>=2.3.0',
-        'wheel>=0.32.3',
-        'backports.shutil_which>=3.5.1',
         'ConfigArgParse>=0.12.1',
-        'python-daemon>=2.1.2',
         'ecdsa>=0.13',
         'pynacl>=1.4.0',
         'mnemonic>=0.18',
@@ -33,6 +30,7 @@ setup(
         'semver>=2.2',
         'unidecode>=0.4.20',
     ],
+    python_requires='>=3.8',
     platforms=['POSIX'],
     classifiers=[
         'Environment :: Console',
