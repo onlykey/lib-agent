@@ -154,7 +154,6 @@ def main(device_type):
     p = argparse.ArgumentParser()
 
     agent_package = device_type.package_name()
-    resources_map = {r.key: r for r in pkg_resources.require(agent_package)}
     resources = [metadata.distribution(agent_package), metadata.distribution('lib-agent')]
     versions = '\n'.join('{}={}'.format(r.metadata['Name'], r.version) for r in resources)
     p.add_argument('--version', help='print the version info',
