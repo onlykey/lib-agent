@@ -1,4 +1,4 @@
 [MESSAGES CONTROL]
-disable=invalid-name, missing-docstring, locally-disabled, unbalanced-tuple-unpacking,no-else-return,fixme,duplicate-code,cyclic-import,import-outside-toplevel,consider-using-with,consider-using-f-string,unspecified-encoding,too-many-statements,too-many-branches,too-many-positional-arguments,possibly-used-before-assignment,inconsistent-return-statements
+disable=invalid-name, missing-docstring, locally-disabled, unbalanced-tuple-unpacking,no-else-return,fixme,duplicate-code,cyclic-import,import-outside-toplevel,consider-using-with,consider-using-f-string,unspecified-encoding,too-many-statements,too-many-branches,too-many-positional-arguments,possibly-used-before-assignment,inconsistent-return-statements,deprecated-class
 [SIMILARITIES]
 min-similarity-lines=5
