@@ -6,7 +6,6 @@ import os
 
 import mnemonic
 import semver
-
 import trezorlib
 from trezorlib.btc import get_address, get_public_node
 from trezorlib.client import PASSPHRASE_TEST_PATH
