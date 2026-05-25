@@ -69,8 +69,10 @@ def parse_ssh_blob(data):
         res['reserved'] = util.read_frame(i)
         res['hashalg'] = util.read_frame(i)
         res['message'] = util.read_frame(i)
-        res['user'] = b'SSHSIG' # logging statements in client.py expect this to be there and raise without it
-        res['key_type'] = res['hashalg'] # logging statements in client.py expect this to be there and raise without it
+        # logging statements in client.py expect this to be there and raise without it
+        res['user'] = b'SSHSIG'
+        # logging statements in client.py expect this to be there and raise without it
+        res['key_type'] = res['hashalg']
     else:
         i = io.BytesIO(data)
         res['sshsig'] = False

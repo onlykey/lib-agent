@@ -123,10 +123,12 @@ def keygrip_nist256(vk):
         ['q', util.num2bytes(q, size=65)],
     ])
 
+
 def keygrip_rsa(n, length):
     """Compute keygrip for rsa public keys."""
     nhex = b'\x00' + util.num2bytes(n, size=int(length/8))
     return hashlib.sha1(nhex).digest()
+
 
 def keygrip_ed25519(vk):
     """Compute keygrip for Ed25519 public keys."""
@@ -139,6 +141,7 @@ def keygrip_ed25519(vk):
         ['n', util.num2bytes(0x1000000000000000000000000000000014DEF9DEA2F79CD65812631A5CF5D3ED, size=32)],  # nopep8
         ['q', vk.encode(encoder=nacl.encoding.RawEncoder)],
     ])
+
 
 def keygrip_curve25519(vk):
     """Compute keygrip for Curve25519 public keys."""
@@ -196,7 +199,7 @@ class PublicKey:
     def __init__(self, curve_name, created, verifying_key, ecdh=False):
         """Contruct using a ECDSA VerifyingKey object."""
         self.curve_name = curve_name
-        if curve_name != 'rsa2048' and curve_name != 'rsa4096':
+        if curve_name not in ('rsa2048', 'rsa4096'):
             self.curve_info = SUPPORTED_CURVES[curve_name]
             self.ecdh = bool(ecdh)
             if ecdh:
@@ -206,7 +209,7 @@ class PublicKey:
                 self.algo_id = self.curve_info['algo_id']
                 self.ecdh_packet = b''
         else:
-            self.algo_id = 1 # RSA (Encrypt or Sign) (0x1)
+            self.algo_id = 1  # RSA (Encrypt or Sign) (0x1)
         self.created = int(created)  # time since Epoch
         self.verifying_key = verifying_key
 
@@ -220,11 +223,11 @@ class PublicKey:
                              4,             # version
                              self.created,  # creation
                              self.algo_id)  # public key algorithm ID
-        if self.algo_id != 1: # ECC
+        if self.algo_id != 1:  # ECC
             oid = util.prefix_len('>B', self.curve_info['oid'])
             blob = self.curve_info['serialize'](self.verifying_key)
             return header + oid + blob + self.ecdh_packet
-        else: # RSA
+        else:  # RSA
             blob = util.bytes2num(self.verifying_key)
             return header + blob
 

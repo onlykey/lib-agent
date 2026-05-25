@@ -41,8 +41,8 @@ class Client:
                 pubkey=peer_pubkey, identity=identity)
             assert result[:1] == b"\x04"
             hkdf = HKDF(
-                 algorithm=hashes.SHA256(),
-                 length=32,
-                 salt=((peer_pubkey + self_pubkey)),
-                 info=b"age-encryption.org/v1/X25519")
+                algorithm=hashes.SHA256(),
+                length=32,
+                salt=((peer_pubkey + self_pubkey)),
+                info=b"age-encryption.org/v1/X25519")
             return hkdf.derive(result[1:])

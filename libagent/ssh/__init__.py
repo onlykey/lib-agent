@@ -10,11 +10,11 @@ import subprocess
 import sys
 import tempfile
 import threading
+from importlib import metadata
 
 import configargparse
 import daemon
 
-from importlib import metadata
 from .. import device, formats, server, util
 from . import client, protocol
 
