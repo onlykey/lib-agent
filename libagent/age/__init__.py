@@ -16,9 +16,9 @@ import logging
 import os
 import sys
 import traceback
+from importlib import metadata
 
 import bech32
-from importlib import metadata
 import semver
 from cryptography.exceptions import InvalidTag
 from cryptography.hazmat.primitives.ciphers.aead import ChaCha20Poly1305

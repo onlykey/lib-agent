@@ -8,7 +8,6 @@ from ledgerblue import comm  # pylint: disable=import-error
 
 from .. import formats
 from . import interface
-from .. import formats
 
 log = logging.getLogger(__name__)
 

@@ -130,7 +130,7 @@ class Handler:
         key = formats.parse_pubkey(util.read_frame(buf))
         log.debug('looking for %s', key['fingerprint'])
         blob = util.read_frame(buf)
-        if (key['type'] != b'ssh-rsa'):
+        if key['type'] != b'ssh-rsa':
             assert util.read_frame(buf) == b''
             assert not buf.read()
 
@@ -159,11 +159,11 @@ class Handler:
             log.info('signature status: OK')
         except formats.ecdsa.BadSignatureError as e:
             log.exception('signature status: ERROR')
-            raise ValueError('invalid signature')
+            raise ValueError('invalid signature') from e
 
         log.debug('signature size: %d bytes', len(sig_bytes))
 
-        if (key['type'] == b'ssh-rsa'):
+        if key['type'] == b'ssh-rsa':
             if b'rsa-sha2-512' in blob:
                 data = util.frame(util.frame(b'rsa-sha2-512'), util.frame(sig_bytes))
             else:

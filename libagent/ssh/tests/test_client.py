@@ -122,4 +122,6 @@ def test_parse_ssh_signature():
         'namespace': b'file',
         'reserved': b'',
         'sshsig': True,
+        'user': b'SSHSIG',
+        'key_type': b'sha512',
     }

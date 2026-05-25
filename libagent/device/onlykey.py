@@ -2,16 +2,17 @@
 # pylint: disable=attribute-defined-outside-init
 """OnlyKey-related code (see https://www.onlykey.io/)."""
 
-import logging
-import hashlib
 import codecs
+import hashlib
+import logging
 import os
-from os import path
+import re
 import time
+from os import path
+
 import ecdsa
 import nacl.signing
 import unidecode
-import re
 
 from . import interface
 
@@ -48,8 +49,8 @@ class OnlyKey(interface.Device):
                     self.okversion = self.okversion[8:]
                     if self.okversion[0] == 'v':
                         break
-            except Exception:
-                raise interface.NotFoundError('{} not connected: "{}"')
+            except Exception as exc:
+                raise interface.NotFoundError('{} not connected: "{}"') from exc
 
     def set_skey(self, skey):
         """Set signing key to use."""
@@ -73,6 +74,7 @@ class OnlyKey(interface.Device):
         # self.import_pubkey_bytes = bytes(self.import_pubkey_obj)
 
     def get_key_by_keygrip(self, keygrip):
+        """Return key-slot info for the given keygrip."""
         if keygrip is None:
             return None
         keygriplong = keygrip
@@ -92,19 +94,21 @@ class OnlyKey(interface.Device):
                 raise KeyError('keygrip %s not found' % keygriplong)
         return None
 
-
     def get_sk_dk(self):
         """Get signing key and decryption key slots from config."""
-        fpath = os.path.join(os.environ.get('AGENTHOMEDIR', os.environ.get('GNUPGHOME')), 'run-agent.sh')
+        fpath = os.path.join(os.environ.get(
+            'AGENTHOMEDIR', os.environ.get('GNUPGHOME')), 'run-agent.sh')
         log.debug('Path to run-agent.sh = %s', fpath)
         if path.exists(fpath):
             with open(fpath) as f:
                 s = f.read()
                 if '--skey-slot=ECC' in s:
                     if s[s.find('--skey-slot=')+16:s.find('--skey-slot=')+17] == ' ':
-                        self.set_skey(int(s[s.find('--skey-slot=')+15:s.find('--skey-slot=')+16])+100)
+                        self.set_skey(
+                            int(s[s.find('--skey-slot=')+15:s.find('--skey-slot=')+16])+100)
                     else:
-                        self.set_skey(int(s[s.find('--skey-slot=')+15:s.find('--skey-slot=')+17])+100)
+                        self.set_skey(
+                            int(s[s.find('--skey-slot=')+15:s.find('--skey-slot=')+17])+100)
                 elif '--skey-slot=RSA' in s:
                     self.set_skey(int(s[s.find('--skey-slot=')+15:s.find('--skey-slot=')+16]))
                 elif '--skey-slot=' in s:
@@ -114,9 +118,11 @@ class OnlyKey(interface.Device):
                         self.set_skey(int(s[s.find('--skey-slot=')+12:s.find('--skey-slot=')+15]))
                 if '--dkey-slot=ECC' in s:
                     if s[s.find('--dkey-slot=')+16:s.find('--dkey-slot=')+17] == ' ':
-                        self.set_dkey(int(s[s.find('--dkey-slot=')+15:s.find('--dkey-slot=')+16])+100)
+                        self.set_dkey(
+                            int(s[s.find('--dkey-slot=')+15:s.find('--dkey-slot=')+16])+100)
                     else:
-                        self.set_dkey(int(s[s.find('--dkey-slot=')+15:s.find('--dkey-slot=')+17])+100)
+                        self.set_dkey(
+                            int(s[s.find('--dkey-slot=')+15:s.find('--dkey-slot=')+17])+100)
                 elif '--dkey-slot=RSA' in s:
                     self.set_dkey(int(s[s.find('--dkey-slot=')+15:s.find('--dkey-slot=')+16]))
                 elif '--dkey-slot=' in s:
@@ -253,18 +259,16 @@ class OnlyKey(interface.Device):
                 if identity.identity_dict['proto'] == 'ssh':
                     # https://security.stackexchange.com/questions/42268/how-do-i-get-the-rsa-bit-length-with-the-pubkey-and-openssl
                     ok_pubkey = b'\x00\x00\x00\x07' + b'\x73\x73\x68\x2d\x72\x73\x61' + \
-                                                    b'\x00\x00\x00\x03' + b'\x01\x00\x01' + \
-                                                    b'\x00\x00\x01\x01' + b'\x00' + bytes(ok_pubkey)
-                    # ok_pubkey = b'\x00\x00\x00\x07' + b'\x72\x73\x61\x2d\x73\x68\x61\x32\x2d\x32\x35\x
-                    # 36' + b'\x00\x00\x00\x03' + b'\x01\x00\x01' + b'\x00\x00\x01\x01' + b'\x00' + byte
-                    # s(ok_pubkey)
+                        b'\x00\x00\x00\x03' + b'\x01\x00\x01' + \
+                        b'\x00\x00\x01\x01' + b'\x00' + bytes(ok_pubkey)
+                    # (legacy commented-out raw SSH RSA pubkey assembly omitted)
                 else:
                     ok_pubkey = bytes(ok_pubkey)
             elif len(ok_pubkey) == 512:
                 if identity.identity_dict['proto'] == 'ssh':
                     ok_pubkey = b'\x00\x00\x00\x07' + b'\x73\x73\x68\x2d\x72\x73\x61' + \
-                                                    b'\x00\x00\x00\x03' + b'\x01\x00\x01' + \
-                                                    b'\x00\x00\x02\x01' + b'\x00' + bytes(ok_pubkey)
+                        b'\x00\x00\x00\x03' + b'\x01\x00\x01' + \
+                        b'\x00\x00\x02\x01' + b'\x00' + bytes(ok_pubkey)
                 else:
                     ok_pubkey = bytes(ok_pubkey)
             else:
@@ -404,8 +408,6 @@ class OnlyKey(interface.Device):
         self_pubkey = self.pubkey(ecdh=False, identity=identity)
         log.info('Using self_pubkey= %s', self_pubkey)
         session_key = self.ecdh(identity, pubkey)
-        if self_pubkey:
-            self_pubkey = self_pubkey
         return session_key, self_pubkey
 
     def ecdh(self, identity, pubkey):
@@ -502,7 +504,8 @@ def get_button(self, byte):
     else:
         return byte % 6 + 1
 
-def convert_keyslot (self, s):
+
+def convert_keyslot(self, s):  # pylint: disable=unused-argument
     """Return key slot number."""
     if 'ECC' in s:
         if len(s) == 5:
