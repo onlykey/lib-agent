@@ -74,7 +74,7 @@ class OnlyKey(interface.Device):
         # self.import_pubkey_bytes = bytes(self.import_pubkey_obj)
 
     def get_key_by_keygrip(self, keygrip):
-        """Return key-slot info for the given keygrip."""
+        """Look up a stored key by its keygrip."""
         if keygrip is None:
             return None
         keygriplong = keygrip
@@ -145,7 +145,7 @@ class OnlyKey(interface.Device):
         log.info('disconnected from %s', self.device_name)
         self.ok.close()
 
-    def pubkey(self, identity, ecdh=False):
+    def pubkey(self, identity, ecdh=False):  # pylint: disable=inconsistent-return-statements
         """Return public key."""
         curve_name = identity.get_curve_name(ecdh=ecdh)
         keygrip_slot_id = None
@@ -247,7 +247,7 @@ class OnlyKey(interface.Device):
                     if len(ok_pub_part) == 64 and len(set(ok_pub_part[0:63])) != 1:
                         log.info('received part= %s', repr(ok_pub_part))
                         ok_pubkey += ok_pub_part
-                        if len(ok_pubkey) == publen:
+                        if len(ok_pubkey) == publen:  # pylint: disable=E0606
                             break
                         # Todo know RSA type to know how many packets
                 except Exception as e:
@@ -261,7 +261,6 @@ class OnlyKey(interface.Device):
                     ok_pubkey = b'\x00\x00\x00\x07' + b'\x73\x73\x68\x2d\x72\x73\x61' + \
                         b'\x00\x00\x00\x03' + b'\x01\x00\x01' + \
                         b'\x00\x00\x01\x01' + b'\x00' + bytes(ok_pubkey)
-                    # (legacy commented-out raw SSH RSA pubkey assembly omitted)
                 else:
                     ok_pubkey = bytes(ok_pubkey)
             elif len(ok_pubkey) == 512:
@@ -391,7 +390,7 @@ class OnlyKey(interface.Device):
                     if len(sig_part) == 64 and len(set(sig_part[0:63])) != 1:
                         log.info('received part= %s', repr(sig_part))
                         result += sig_part
-                        if len(result) == siglen:
+                        if len(result) == siglen:  # pylint: disable=E0606
                             log.info('received len= %d', len(result))
                             break
                         t_end = time.time() + 1
@@ -505,7 +504,7 @@ def get_button(self, byte):
         return byte % 6 + 1
 
 
-def convert_keyslot(self, s):  # pylint: disable=unused-argument
+def convert_keyslot(self, s):  # pylint: disable=inconsistent-return-statements,unused-argument
     """Return key slot number."""
     if 'ECC' in s:
         if len(s) == 5:

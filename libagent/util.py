@@ -5,6 +5,7 @@ import functools
 import io
 import logging
 import struct
+import sys
 import time
 
 log = logging.getLogger(__name__)
@@ -237,7 +238,12 @@ def memoize_method(method):
 @memoize
 def which(cmd):
     """Return full path to specified command, or raise OSError if missing."""
-    from shutil import which as _which
+    try:
+        # For Python 3
+        from shutil import which as _which
+    except ImportError:
+        # For Python 2
+        from backports.shutil_which import which as _which
     full_path = _which(cmd)
     if full_path is None:
         raise OSError('Cannot find {!r} in $PATH'.format(cmd))
@@ -251,6 +257,30 @@ def assuan_serialize(data):
         escaped = '%{:02X}'.format(ord(c)).encode('ascii')
         data = data.replace(c, escaped)
     return data
+
+
+def escape_cmd_quotes(in_str):
+    """
+    Escape a string for use as a command line argument inside quotes.
+
+    Does not add quotes. This allows appending multiple strings inside the quotes.
+    """
+    if sys.platform == 'win32':
+        return in_str.translate(str.maketrans({'%': '%%', '\"': '\"\"'}))
+    else:
+        return in_str.translate(str.maketrans({'\"': '\\\"', '\'': '\\\'', '\\': '\\\\'}))
+
+
+def escape_cmd_win(in_str):
+    """Escape a string for Windows batch files in a context where quotes cannot be used."""
+    return in_str.translate(str.maketrans({'\"': '^\"',
+                                           '%': '%%',
+                                           '&': '^&',
+                                           '\'': '^\'',
+                                           '<': '^<',
+                                           '>': '^>',
+                                           '^': '^^',
+                                           '|': '^|'}))
 
 
 class ExpiringCache:

@@ -36,9 +36,10 @@ class Client:
             digest = digest[:32]  # sign the first 256 bits
         log.debug('signing digest: %s', util.hexlify(digest))
         log.debug('identity type: %s', identity.curve_name)
-        if identity.curve_name in ('rsa2048', 'rsa4096') and len(digest) == 32:
+        is_rsa = identity.curve_name in ('rsa2048', 'rsa4096')
+        if is_rsa and len(digest) == 32:
             self.device.sig_hash(b'rsa-sha2-256')
-        elif identity.curve_name in ('rsa2048', 'rsa4096') and len(digest) == 64:
+        elif is_rsa and len(digest) == 64:
             self.device.sig_hash(b'rsa-sha2-512')
         with self.device:
             sig = self.device.sign(blob=digest, identity=identity)
