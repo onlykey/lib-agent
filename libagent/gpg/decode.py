@@ -5,7 +5,6 @@ import hashlib
 import io
 import logging
 import struct
-from Crypto.Util.number import long_to_bytes
 
 import ecdsa
 import nacl.signing
@@ -175,7 +174,7 @@ def _parse_pubkey(stream, packet_type='pubkey'):
             parse_mpis(stream, n=4)  # DSA keys are not supported
         elif p['algo'] == ELGAMAL_ALGO_ID:
             parse_mpis(stream, n=3)  # ElGamal keys are not supported
-        elif p['algo'] in RSA_ALGO_IDS:  
+        elif p['algo'] in RSA_ALGO_IDS:
             log.debug('parsing rsa key')
             mpi = parse_mpi(stream)  # RSA key
             log.debug('mpi: %d (%d bits)', mpi, mpi.bit_length())
@@ -190,7 +189,7 @@ def _parse_pubkey(stream, packet_type='pubkey'):
                 size, = util.readfmt(leftover, 'B')
                 p['kdf'] = leftover.read(size)
                 p['secret'] = leftover.read()
-            
+
         assert not stream.read()
 
     # https://tools.ietf.org/html/rfc4880#section-12.2
@@ -261,7 +260,7 @@ def parse_packets(stream):
             else:
                 log.error('Partial Body Lengths unsupported')
 
-        log.debug('packet length: %d', packet_size)
+        log.debug('packet length: %d', packet_size)  # pylint: disable=E0606
         packet_data = reader.read(packet_size)
         packet_type = PACKET_TYPES.get(tag)
 
@@ -309,7 +308,7 @@ def _parse_pubkey_packets(pubkey_bytes):
 
 
 def load_by_keygrip(pubkey_bytes, keygrip):
-    """Return public key and first user ID for specified keygrip."""
+    """Return public key and user IDs for specified keygrip."""
     for packets in _parse_pubkey_packets(pubkey_bytes):
         user_ids = [p for p in packets if p['type'] == 'user_id']
         for p in packets:
