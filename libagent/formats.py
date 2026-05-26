@@ -6,9 +6,13 @@ import logging
 
 import ecdsa
 import nacl.signing
+import Crypto.Hash
+import Crypto.PublicKey
+import Crypto.Signature
+from Crypto.Signature import pkcs1_15
 from Crypto.Hash import SHA256, SHA512
 from Crypto.PublicKey import RSA
-from Crypto.Signature import pkcs1_15
+import nacl.signing
 
 from . import util
 
@@ -34,8 +38,7 @@ SSH_NIST256_CERT_POSTFIX = b'-cert-v01@openssh.com'
 SSH_NIST256_CERT_TYPE = SSH_NIST256_KEY_TYPE + SSH_NIST256_CERT_POSTFIX
 SSH_ED25519_KEY_TYPE = b'ssh-ed25519'
 SSH_RSA_KEY_TYPE = b'ssh-rsa'
-SUPPORTED_KEY_TYPES = {SSH_NIST256_KEY_TYPE,
-                       SSH_NIST256_CERT_TYPE, SSH_ED25519_KEY_TYPE, SSH_RSA_KEY_TYPE}
+SUPPORTED_KEY_TYPES = {SSH_NIST256_KEY_TYPE, SSH_NIST256_CERT_TYPE, SSH_ED25519_KEY_TYPE, SSH_RSA_KEY_TYPE}
 
 hashfunc = hashlib.sha256
 
@@ -130,7 +133,7 @@ def parse_pubkey(blob):
         def rsa_verify(sig, msg):
             pub = bytes(b'ssh-rsa ' + base64.b64encode(blob))
             log.debug('RSA pubkey: %s', pub)
-            vk = RSA.importKey(pub)
+            vk = Crypto.PublicKey.RSA.importKey(pub)
             log.debug('message: %s', msg)
             if b'rsa-sha2-512' in msg:
                 h = SHA512.new(msg)
@@ -140,7 +143,7 @@ def parse_pubkey(blob):
                 log.debug('rsa-sha2-256')
             log.debug('hash: %s', h.hexdigest())
             try:
-                pkcs1_15.new(vk).verify(h, sig)
+                Crypto.Signature.pkcs1_15.new(vk).verify(h, sig)
                 log.debug('The RSA signature is valid.')
             except (ValueError, TypeError):
                 log.debug('The RSA signature is not valid.')
@@ -230,10 +233,11 @@ def serialize_verifying_key(vk):
         return key_type, blob
 
     if (len(vk) == 279 or len(vk) == 535):
-        # RSA 2048 or RSA 4096
+        #RSA 2048 or RSA 4096
         pubkey = vk
         key_type = SSH_RSA_KEY_TYPE
         return key_type, pubkey
+
 
     raise TypeError('unsupported {!r}'.format(vk))
 

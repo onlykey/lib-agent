@@ -13,6 +13,7 @@ import subprocess
 import sys
 import time
 
+import pkg_resources
 import semver
 
 from .. import formats, server, util

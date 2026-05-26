@@ -237,7 +237,12 @@ def memoize_method(method):
 @memoize
 def which(cmd):
     """Return full path to specified command, or raise OSError if missing."""
-    from shutil import which as _which
+    try:
+        # For Python 3
+        from shutil import which as _which
+    except ImportError:
+        # For Python 2
+        from backports.shutil_which import which as _which
     full_path = _which(cmd)
     if full_path is None:
         raise OSError('Cannot find {!r} in $PATH'.format(cmd))

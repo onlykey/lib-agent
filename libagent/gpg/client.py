@@ -8,7 +8,7 @@ from ..device import interface
 log = logging.getLogger(__name__)
 
 
-def create_identity(user_id, curve_name, keygrip=None):
+def create_identity(user_id, curve_name, keygrip = None):
     """Create GPG identity for hardware device."""
     result = interface.Identity(identity_str='gpg://', curve_name=curve_name)
     result.identity_dict['host'] = user_id
@@ -36,13 +36,13 @@ class Client:
             digest = digest[:32]  # sign the first 256 bits
         log.debug('signing digest: %s', util.hexlify(digest))
         log.debug('identity type: %s', identity.curve_name)
-        if identity.curve_name in ('rsa2048', 'rsa4096') and len(digest) == 32:
+        if (identity.curve_name == 'rsa2048' or identity.curve_name == 'rsa4096') and len(digest) == 32: 
             self.device.sig_hash(b'rsa-sha2-256')
-        elif identity.curve_name in ('rsa2048', 'rsa4096') and len(digest) == 64:
+        elif (identity.curve_name == 'rsa2048' or identity.curve_name == 'rsa4096') and len(digest) == 64: 
             self.device.sig_hash(b'rsa-sha2-512')
         with self.device:
             sig = self.device.sign(blob=digest, identity=identity)
-        if identity.curve_name in ('rsa2048', 'rsa4096'):
+        if (identity.curve_name == 'rsa2048' or identity.curve_name == 'rsa4096'):
             return util.bytes2num(sig)
         else:
             return (util.bytes2num(sig[:32]), util.bytes2num(sig[32:]))

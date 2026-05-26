@@ -1,5 +1,6 @@
 """TREZOR-related definitions."""
 
+import logging
 # pylint: disable=unused-import,import-error,no-name-in-module,no-member
 import logging
 import os
