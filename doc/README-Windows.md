@@ -40,7 +40,7 @@ Run the following command:
 pip install <device>-agent
 ```
 
-**Note:** Some agent packages use underscore instead of hyphen in the package name. For example, the Trezor agent package is `trezor-agent`, while the Ledger agent package is `ledger_agent`. This only applies to the `pip` package names. All other commands use a hyphen for all devices.
+**Note:** Some agent packages use underscore instead of hyphen in the package name. For example, the onlykey agent package is `onlykey-agent`, while the Ledger agent package is `ledger_agent`. This only applies to the `pip` package names. All other commands use a hyphen for all devices.
 
 ## Building from source
 
@@ -51,17 +51,17 @@ winget install -e --id Git.Git
 
 Create a directory for the source code, and clone the repository. Before running this command, you may want to change to a directory where you usually hold documents or source code packages.
 ```
-git clone https://github.com/romanz/trezor-agent.git
+git clone https://github.com/trustcrypto/onlykey-agent.git
 ```
 
 Build and install the library:
 ```
-pip install -e trezor-agent
+pip install -e onlykey-agent
 ```
 
 Build and install the agent of your choice:
 ```
-pip install -e trezor-agent/agents/<device>
+pip install -e onlykey-agent/agents/<device>
 ```
 
 ## Usage
@@ -197,7 +197,7 @@ The content of the file may look something like this:
 ```
 # recipient: agewnc7uu1btfhmr95dia9txto4ke1lm7azka3x1zkh17fk52guykrc2xk11
 # SLIP-0017: MyIdentityPath
-AGE-PLUGIN-TREZOR-1F4U5JER9DE6XJARE2PSHG6Q4UFNE8
+AGE-PLUGIN-onlykey-1F4U5JER9DE6XJARE2PSHG6Q4UFNE8
 ```
 
 Next, in Explorer, right click on the file you want to encrypt, and select `Encrypt with age`. Pick the `Recipient` mode. Copy the code appearing after `recipient:` in your `age.identity` file, e.g. `agewnc7uu1btfhmr95dia9txto4ke1lm7azka3x1zkh17fk52guykrc2xk11`, and paste it in the `Recipient, recipient file, or identity file` box. Finally, click on `Encrypt`, and pick the file location to save the encrypted file. Be sure to give it an `.age` suffix, so it can be easily decrypted.
@@ -300,7 +300,7 @@ Also look for any other SSH agents you may have installed on your system.
 
 If you receive the error:
 ```
-gpg: invalid size of lockfile 'C:\Users\MyUser/gnupg/trezor/pubring.kbx.lock'
+gpg: invalid size of lockfile 'C:\Users\MyUser/gnupg/onlykey/pubring.kbx.lock'
 ```
 It means Git is trying to run the wrong version of GPG. First, Figure out where your GPG is:
 ```
@@ -327,7 +327,7 @@ gpg --list-secret-keys --keyid-format=long
 Example output:
 ```
 C:\Users\MyUser>gpg --list-secret-keys --keyid-format=long
-C:\Users\MyUser\.gnupg\trezor\pubring.kbx
+C:\Users\MyUser\.gnupg\onlykey\pubring.kbx
 ----------------------------------------
 sec   ed25519/100A53DB673C6714 1970-01-01 [SC]
       1E98503AC72ECBF78CDC3E415188B41C865FD25C
@@ -344,7 +344,7 @@ Example output:
 ```
 C:\Users\MyUser>type "%USERPROFILE%\.gnupg\<device>\gpg.conf"
 # Hardware-based GPG configuration
-agent-program "C:\Users\MyUser/.gnupg/trezor\run-agent.bat"
+agent-program "C:\Users\MyUser/.gnupg/onlykey\run-agent.bat"
 personal-digest-preferences SHA512
 default-key 0x100A53DB673C6714
 ```
