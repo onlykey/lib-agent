@@ -10,7 +10,6 @@ import subprocess
 import sys
 import tempfile
 import threading
-from importlib import metadata
 
 import configargparse
 import daemon
@@ -72,10 +71,8 @@ def create_agent_parser(device_type):
     p.add_argument('-v', '--verbose', default=0, action='count')
 
     agent_package = device_type.package_name()
-    resources = [metadata.distribution(agent_package), metadata.distribution('lib-agent')]
-    versions = '\n'.join('{}={}'.format(r.metadata['Name'], r.version) for r in resources)
     p.add_argument('--version', help='print the version info',
-                   action='version', version=versions)
+                   action='version', version=util.format_versions(agent_package))
 
     curve_names = ', '.join(sorted(formats.SUPPORTED_CURVES))
 
