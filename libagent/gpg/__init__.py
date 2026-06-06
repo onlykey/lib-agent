@@ -17,7 +17,6 @@ import re
 import subprocess
 import sys
 import time
-from importlib import metadata
 
 import Crypto.Hash
 import Crypto.PublicKey
@@ -36,9 +35,6 @@ log = logging.getLogger(__name__)
 
 def export_public_key(device_type, args):
     """Generate a new pubkey for a new/existing GPG identity."""
-    # log.warning('NOTE: in order to re-generate the exact same GPG key later, '
-    #            'run this command with "--time=%d" commandline flag (to set '
-    #            'the timestamp of the GPG key manually).', args.time)
     c = client.Client(device=device_type())
     identity = client.create_identity(user_id=args.user_id,
                                       curve_name=args.ecdsa_curve)
@@ -125,9 +121,6 @@ def write_file(path, data):
 def run_init(device_type, args):
     """Initialize hardware-based GnuPG identity."""
     util.setup_logging(verbosity=args.verbose)
-    # log.warning('This GPG tool is still in EXPERIMENTAL mode, '
-    #            'so please note that the API and features may '
-    #            'change without backwards compatibility!')
 
     verify_gpg_version()
 
@@ -310,7 +303,6 @@ def run_agent_internal(args, device_type):
                         handler.handle(conn)
                     except agent.AgentStop:
                         log.info('stopping gpg-agent')
-                        return
                     except IOError as e:
                         log.info('connection closed: %s', e)
                         return
@@ -328,10 +320,8 @@ def main(device_type):
     parser = argparse.ArgumentParser(epilog=epilog)
 
     agent_package = device_type.package_name()
-    resources = [metadata.distribution(agent_package), metadata.distribution('lib-agent')]
-    versions = '\n'.join('{}={}'.format(r.metadata['Name'], r.version) for r in resources)
     parser.add_argument('--version', help='print the version info',
-                        action='version', version=versions)
+                        action='version', version=util.format_versions(agent_package))
 
     subparsers = parser.add_subparsers(title='Action', dest='action')
     subparsers.required = True

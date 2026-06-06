@@ -16,7 +16,6 @@ import logging
 import os
 import sys
 import traceback
-from importlib import metadata
 
 import bech32
 import semver
@@ -154,10 +153,8 @@ def main(device_type):
     p = argparse.ArgumentParser()
 
     agent_package = device_type.package_name()
-    resources = [metadata.distribution(agent_package), metadata.distribution('lib-agent')]
-    versions = '\n'.join('{}={}'.format(r.metadata['Name'], r.version) for r in resources)
     p.add_argument('--version', help='print the version info',
-                   action='version', version=versions)
+                   action='version', version=util.format_versions(agent_package))
 
     p.add_argument('-i', '--identity')
     p.add_argument('-v', '--verbose', default=0, action='count')

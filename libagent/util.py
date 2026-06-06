@@ -245,6 +245,23 @@ def which(cmd):
     return full_path
 
 
+def format_versions(agent_package):
+    """Return a newline-separated 'name=version' string for the agent + lib-agent.
+
+    Falls back to '(version unknown)' if a distribution isn't installed
+    (e.g. running from a source checkout without ``pip install -e .``).
+    """
+    from importlib import metadata
+    lines = []
+    for name in (agent_package, 'lib-agent'):
+        try:
+            dist = metadata.distribution(name)
+            lines.append('{}={}'.format(dist.metadata['Name'], dist.version))
+        except metadata.PackageNotFoundError:
+            lines.append('{}=(version unknown)'.format(name))
+    return '\n'.join(lines)
+
+
 def assuan_serialize(data):
     """Serialize data according to ASSUAN protocol (for GPG daemon communication)."""
     for c in [b'%', b'\n', b'\r']:

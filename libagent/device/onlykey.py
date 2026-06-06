@@ -50,7 +50,8 @@ class OnlyKey(interface.Device):
                     if self.okversion[0] == 'v':
                         break
             except Exception as exc:
-                raise interface.NotFoundError('{} not connected: "{}"') from exc
+                raise interface.NotFoundError(
+                    '{} not connected: "{}"'.format(self.device_name, exc)) from exc
 
     def set_skey(self, skey):
         """Set signing key to use."""
@@ -94,45 +95,58 @@ class OnlyKey(interface.Device):
                 raise KeyError('keygrip %s not found' % keygriplong)
         return None
 
+    DEFAULT_SLOT = 132
+
+    _SKEY_SLOT_RE = re.compile(r'--skey-slot=(\S+)')
+    _DKEY_SLOT_RE = re.compile(r'--dkey-slot=(\S+)')
+
+    @staticmethod
+    def _parse_slot_value(value):
+        """Convert a --(s|d)key-slot=VALUE token (e.g. 'ECC1', 'RSA2', '132').
+
+        Returns an int slot number, or None if VALUE can't be parsed.
+        """
+        if not value:
+            return None
+        try:
+            if value.startswith('ECC'):
+                return int(value[3:]) + 100
+            if value.startswith('RSA'):
+                return int(value[3:])
+            return int(value)
+        except ValueError:
+            log.warning('Unrecognized key-slot value %r in run-agent.sh', value)
+            return None
+
     def get_sk_dk(self):
         """Get signing key and decryption key slots from config."""
-        fpath = os.path.join(os.environ.get(
-            'AGENTHOMEDIR', os.environ.get('GNUPGHOME')), 'run-agent.sh')
+        homedir = os.environ.get('AGENTHOMEDIR') or os.environ.get('GNUPGHOME')
+        if not homedir:
+            log.debug(
+                'Neither AGENTHOMEDIR nor GNUPGHOME set; using default slot %d',
+                self.DEFAULT_SLOT)
+            self.set_skey(self.DEFAULT_SLOT)
+            self.set_dkey(self.DEFAULT_SLOT)
+            return
+
+        fpath = os.path.join(homedir, 'run-agent.sh')
         log.debug('Path to run-agent.sh = %s', fpath)
-        if path.exists(fpath):
-            with open(fpath) as f:
-                s = f.read()
-                if '--skey-slot=ECC' in s:
-                    if s[s.find('--skey-slot=')+16:s.find('--skey-slot=')+17] == ' ':
-                        self.set_skey(
-                            int(s[s.find('--skey-slot=')+15:s.find('--skey-slot=')+16])+100)
-                    else:
-                        self.set_skey(
-                            int(s[s.find('--skey-slot=')+15:s.find('--skey-slot=')+17])+100)
-                elif '--skey-slot=RSA' in s:
-                    self.set_skey(int(s[s.find('--skey-slot=')+15:s.find('--skey-slot=')+16]))
-                elif '--skey-slot=' in s:
-                    if s[s.find('--skey-slot=')+13:s.find('--skey-slot=')+14] == ' ':
-                        self.set_skey(int(s[s.find('--skey-slot=')+12:s.find('--skey-slot=')+13]))
-                    else:
-                        self.set_skey(int(s[s.find('--skey-slot=')+12:s.find('--skey-slot=')+15]))
-                if '--dkey-slot=ECC' in s:
-                    if s[s.find('--dkey-slot=')+16:s.find('--dkey-slot=')+17] == ' ':
-                        self.set_dkey(
-                            int(s[s.find('--dkey-slot=')+15:s.find('--dkey-slot=')+16])+100)
-                    else:
-                        self.set_dkey(
-                            int(s[s.find('--dkey-slot=')+15:s.find('--dkey-slot=')+17])+100)
-                elif '--dkey-slot=RSA' in s:
-                    self.set_dkey(int(s[s.find('--dkey-slot=')+15:s.find('--dkey-slot=')+16]))
-                elif '--dkey-slot=' in s:
-                    if s[s.find('--dkey-slot=')+13:s.find('--dkey-slot=')+14] == ' ':
-                        self.set_dkey(int(s[s.find('--dkey-slot=')+12:s.find('--dkey-slot=')+13]))
-                    else:
-                        self.set_dkey(int(s[s.find('--dkey-slot=')+12:s.find('--dkey-slot=')+15]))
-        else:
-            self.set_skey(132)
-            self.set_dkey(132)
+        if not path.exists(fpath):
+            self.set_skey(self.DEFAULT_SLOT)
+            self.set_dkey(self.DEFAULT_SLOT)
+            return
+
+        with open(fpath) as f:
+            content = f.read()
+
+        skey_match = self._SKEY_SLOT_RE.search(content)
+        dkey_match = self._DKEY_SLOT_RE.search(content)
+
+        skey = self._parse_slot_value(skey_match.group(1)) if skey_match else None
+        dkey = self._parse_slot_value(dkey_match.group(1)) if dkey_match else None
+
+        self.set_skey(skey if skey is not None else self.DEFAULT_SLOT)
+        self.set_dkey(dkey if dkey is not None else self.DEFAULT_SLOT)
 
     def sig_hash(self, sighash):
         """Set signature hashing algorithm to use."""
