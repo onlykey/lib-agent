@@ -1,13 +1,29 @@
 #!/usr/bin/env python
+import os
+
 from setuptools import setup
+
+here = os.path.abspath(os.path.dirname(__file__))
+try:
+    with open(os.path.join(here, 'README.md'), encoding='utf-8') as f:
+        long_description = f.read()
+except IOError:
+    long_description = 'Using OnlyKey as hardware SSH/GPG agent'
 
 setup(
     name='onlykey-agent',
-    version='1.1.13',
+    version='1.1.16',
     description='Using OnlyKey as hardware SSH/GPG agent',
+    long_description=long_description,
+    long_description_content_type='text/markdown',
     author='CryptoTrust',
     author_email='admin@crp.to',
     url='http://github.com/trustcrypto/onlykey-agent',
+    project_urls={
+        'Homepage': 'https://github.com/trustcrypto/onlykey-agent',
+        'Documentation': 'https://docs.onlykey.io',
+        'Source': 'https://github.com/trustcrypto/onlykey-agent',
+    },
     scripts=['onlykey_agent.py'],
     install_requires=[
         'lib-agent>=1.0.6',
