@@ -1,18 +1,35 @@
 #!/usr/bin/env python
+import os
+
 from setuptools import setup
+
+here = os.path.abspath(os.path.dirname(__file__))
+try:
+    with open(os.path.join(here, 'README.md'), encoding='utf-8') as f:
+        long_description = f.read()
+except IOError:
+    long_description = 'Using OnlyKey as hardware SSH/GPG agent'
 
 setup(
     name='onlykey-agent',
-    version='1.1.13',
+    version='1.1.16',
     description='Using OnlyKey as hardware SSH/GPG agent',
+    long_description=long_description,
+    long_description_content_type='text/markdown',
     author='CryptoTrust',
     author_email='admin@crp.to',
     url='http://github.com/trustcrypto/onlykey-agent',
+    project_urls={
+        'Homepage': 'https://github.com/trustcrypto/onlykey-agent',
+        'Documentation': 'https://docs.onlykey.io',
+        'Source': 'https://github.com/trustcrypto/onlykey-agent',
+    },
     scripts=['onlykey_agent.py'],
     install_requires=[
-        'lib-agent>=1.0.6',
-        'onlykey>=1.2.8'
+        'lib-agent>=1.0.8',
+        'onlykey>=1.3.0'
     ],
+    python_requires='>=3.10',
     platforms=['POSIX'],
     classifiers=[
         'Environment :: Console',
@@ -22,10 +39,10 @@ setup(
         'Intended Audience :: System Administrators',
         'License :: OSI Approved :: GNU Lesser General Public License v3 (LGPLv3)',
         'Operating System :: POSIX',
-        'Programming Language :: Python :: 3.5',
-        'Programming Language :: Python :: 3.6',
-        'Programming Language :: Python :: 3.7',
-        'Programming Language :: Python :: 3.8',
+        'Programming Language :: Python :: 3.10',
+        'Programming Language :: Python :: 3.11',
+        'Programming Language :: Python :: 3.12',
+        'Programming Language :: Python :: 3.13',
         'Topic :: Software Development :: Libraries :: Python Modules',
         'Topic :: System :: Networking',
         'Topic :: Communications',

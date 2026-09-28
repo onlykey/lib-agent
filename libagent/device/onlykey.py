@@ -37,21 +37,80 @@ class OnlyKey(interface.Device):
         return onlykey_defs
 
     def connect(self):
-        """Enumerate and connect to the first USB HID interface."""
+        """Enumerate and connect to the first USB HID interface.
+
+        The HID handle is opened exactly once and always closed again on any
+        failure. The previous version constructed a fresh OnlyKey() - each of
+        which opens a USB HID handle - on every iteration of a retry loop and
+        never closed the earlier ones when the version string came back short,
+        so a client that hit that path (a running onlykey-gpg-agent in
+        particular) leaked open handles that the OS kept claimed, blocking
+        every other process - onlykey-cli, the OnlyKey App - from enumerating
+        the key until the agent was killed.
+        """
+        self.device_name = 'OnlyKey'
+        self.ok = None
         t_end = time.time() + 2.5
         while time.time() < t_end:
             try:
-                self.device_name = 'OnlyKey'
                 self.ok = self._defs.OnlyKey()
                 self.ok.set_time(time.time())
                 self.okversion = self.ok.read_string(timeout_ms=100)
                 if len(self.okversion) > 8:
                     self.okversion = self.okversion[8:]
-                    if self.okversion[0] == 'v':
-                        break
+                    if self.okversion and self.okversion[0] == 'v':
+                        self._probe_capabilities()
+                        return
+                # Not the reply we wanted (device still booting / another
+                # client mid-exchange): drop this handle before retrying so we
+                # never hold more than one open at a time.
+                self._safe_close()
+                time.sleep(0.1)
             except Exception as exc:
+                self._safe_close()
                 raise interface.NotFoundError(
                     '{} not connected: "{}"'.format(self.device_name, exc)) from exc
+        # Timed out without a good version - do not leave a handle open for the
+        # caller to inherit; it thinks connect() succeeded otherwise.
+        self._safe_close()
+        raise interface.NotFoundError(
+            '{} not connected: no version response'.format(self.device_name))
+
+    def _probe_capabilities(self):
+        """Ask the firmware what it supports; None on firmware without the report."""
+        self.caps = None
+        try:
+            self.caps = self.ok.getcapabilities()
+        except Exception as exc:  # best effort - old firmware, busy device
+            log.debug('capabilities probe failed: %s', exc)
+        if self.caps:
+            log.info('firmware %s flags=%s', self.caps.get('version'),
+                     [f.name for f in self.caps.get('flags', [])])
+
+    def _is_duo(self):
+        return bool(self.caps) and self._defs.CapabilityFlag.DUO in self.caps.get('flags', [])
+
+    def _challenge(self, raw_message, identity):
+        """Print the 3-digit code the device wants in challenge-code mode."""
+        b1, b2, b3 = self._defs.challenge_code(raw_message, duo=self._is_duo())
+        print('Confirm on OnlyKey to authorize ' + identity.to_string() +
+              ': press any button, or enter {} {} {} if derivedkeymode/storedkeymode is 0'
+              .format(b1, b2, b3))
+
+    def _raise_if_error(self, result):
+        """Raise DeviceError when a raw report is an Error/ERROR string from the device."""
+        kind, text = self._defs.classify_response(result)[:2]
+        if kind == 'error':
+            raise interface.DeviceError(text)
+
+    def _safe_close(self):
+        """Close and drop self.ok if it is open, swallowing any error."""
+        if getattr(self, 'ok', None) is not None:
+            try:
+                self.ok.close()
+            except Exception:  # pylint: disable=broad-except
+                pass
+            self.ok = None
 
     def set_skey(self, skey):
         """Set signing key to use."""
@@ -95,7 +154,26 @@ class OnlyKey(interface.Device):
                 raise KeyError('keygrip %s not found' % keygriplong)
         return None
 
-    DEFAULT_SLOT = 132
+    DEFAULT_SLOT = 132          # derived v1 (released SHA256 KDF), a.k.a. ECC32
+    DERIVED_V2_SLOT = 232       # derived v2 (HKDF): --skey/--dkey derived-v2 or ECC32v2
+
+    @classmethod
+    def _derived_version(cls, slot):
+        """1 for the released derived key (132), 2 for the HKDF one (232), else 0."""
+        if slot == cls.DEFAULT_SLOT:
+            return 1
+        if slot == cls.DERIVED_V2_SLOT:
+            return 2
+        return 0
+
+    def _derived_code(self, slot, curve_name, op):
+        """Sign/decrypt code for a derived identity from the shared protocol table."""
+        ver = 'v%d' % self._derived_version(slot)
+        table = self._defs.AGENT_DERIVATION[ver][op]
+        kt = self._defs.KeyType
+        curve = {'ed25519': kt.ED25519, 'nist256p1': kt.P256R1,
+                 'curve25519': kt.CURVE25519}.get(curve_name, kt.P256K1)
+        return table[curve]
 
     _SKEY_SLOT_RE = re.compile(r'--skey-slot=(\S+)')
     _DKEY_SLOT_RE = re.compile(r'--dkey-slot=(\S+)')
@@ -109,6 +187,8 @@ class OnlyKey(interface.Device):
         if not value:
             return None
         try:
+            if value.lower() in ('derived-v2', 'ecc32v2'):
+                return 232
             if value.startswith('ECC'):
                 return int(value[3:]) + 100
             if value.startswith('RSA'):
@@ -157,7 +237,7 @@ class OnlyKey(interface.Device):
     def close(self):
         """Close connection."""
         log.info('disconnected from %s', self.device_name)
-        self.ok.close()
+        self._safe_close()
 
     def pubkey(self, identity, ecdh=False):
         """Return public key."""
@@ -179,7 +259,10 @@ class OnlyKey(interface.Device):
             this_slot_id = self.skeyslot
             log.info('Key Slot =%s', this_slot_id)
         else:
-            this_slot_id = 132
+            # derived identity: 132 = v1 (SHA256 KDF), 232 = v2 (HKDF); same request shape
+            this_slot_id = self.dkeyslot if ecdh else self.skeyslot
+            if not self._derived_version(this_slot_id):
+                this_slot_id = self.DEFAULT_SLOT
 
         log.info('Requesting public key from key slot =%s', this_slot_id)
 
@@ -227,8 +310,7 @@ class OnlyKey(interface.Device):
                     raise interface.DeviceError(e)
 
             log.info('received= %s', repr(ok_pubkey))
-            if ok_pubkey[:5] == [69, 114, 114, 111, 114]:
-                raise interface.DeviceError("".join([chr(value) for value in ok_pubkey]))
+            self._raise_if_error(ok_pubkey)
             if len(set(ok_pubkey[34:63])) == 1:
                 if curve_name in ('nist256p1', 'secp256k1'):
                     raise interface.DeviceError("Public key curve does not match requested type")
@@ -342,16 +424,9 @@ class OnlyKey(interface.Device):
                 raw_message = blob
             else:
                 raw_message = data
-        elif self.skeyslot == 132:
-            if curve_name == 'ed25519':
-                this_slot_id = 201
-                log.info('Key type ed25519')
-            elif curve_name == 'nist256p1':
-                this_slot_id = 202
-                log.info('Key type nistp256')
-            else:
-                this_slot_id = 203
-                log.info('Key type secp256k1')
+        elif self._derived_version(self.skeyslot):
+            this_slot_id = self._derived_code(self.skeyslot, curve_name, 'sign')
+            log.info('Derived v%d %s sign code %d', self._derived_version(self.skeyslot), curve_name, this_slot_id)
             # Send data and identity hash
             raw_message = blob + data
         elif curve_name != 'rsa':
@@ -363,14 +438,8 @@ class OnlyKey(interface.Device):
             # Send just hash
             raw_message = data
 
-        h2 = hashlib.sha256()
-        h2.update(raw_message)
-        d = h2.digest()
-        assert len(d) == 32
-        b1, b2, b3 = get_button(self, d[0]), get_button(self, d[15]), get_button(self, d[31])
         log.info('Key Slot =%s', this_slot_id)
-        print('Enter the 3 digit challenge code on OnlyKey to authorize '+identity.to_string())
-        print('{} {} {}'.format(b1, b2, b3))
+        self._challenge(raw_message, identity)
         t_end = time.time() + 22
         if 'rsa' not in curve_name:
             self.ok.send_large_message2(msg=self._defs.Message.OKSIGN, payload=raw_message,
@@ -383,6 +452,7 @@ class OnlyKey(interface.Device):
                 except Exception as e:
                     raise interface.DeviceError(e)
 
+            self._raise_if_error(result)
             if len(result) >= 60:
                 log.info('received= %s', repr(result))
                 while len(result) < 64:
@@ -403,6 +473,7 @@ class OnlyKey(interface.Device):
                 try:
                     sig_part = self.ok.read_bytes(timeout_ms=100)
                     if len(sig_part) == 64 and len(set(sig_part[0:63])) != 1:
+                        self._raise_if_error(sig_part)
                         log.info('received part= %s', repr(sig_part))
                         result += sig_part
                         if len(result) == siglen:
@@ -453,16 +524,9 @@ class OnlyKey(interface.Device):
             keygrip = identity.identity_dict['keygrip']
             keygrip_slot_id = self.get_key_by_keygrip(keygrip)
 
-        if self.dkeyslot == 132:
-            if curve_name == 'curve25519':
-                this_slot_id = 204
-                log.info('Key type curve25519')
-            elif curve_name == 'nist256p1':
-                this_slot_id = 202
-                log.info('Key type nistp256')
-            else:
-                this_slot_id = 203
-                log.info('Key type secp256k1')
+        if self._derived_version(self.dkeyslot):
+            this_slot_id = self._derived_code(self.dkeyslot, curve_name, 'decrypt')
+            log.info('Derived v%d %s decrypt code %d', self._derived_version(self.dkeyslot), curve_name, this_slot_id)
             raw_message = pubkey + data
         else:
             if keygrip_slot_id is not None:
@@ -472,15 +536,9 @@ class OnlyKey(interface.Device):
             raw_message = pubkey
         log.info('Key Slot =%s', this_slot_id)
         log.info('data hash =%s', data)
-        h2 = hashlib.sha256()
-        h2.update(raw_message)
-        d = h2.digest()
-        assert len(d) == 32
-        b1, b2, b3 = get_button(self, d[0]), get_button(self, d[15]), get_button(self, d[31])
         self.ok.send_large_message2(msg=self._defs.Message.OKDECRYPT, payload=raw_message,
                                     slot_id=this_slot_id)
-        print('Enter the 3 digit challenge code on OnlyKey to authorize ' + identity.to_string())
-        print('{} {} {}'.format(b1, b2, b3))
+        self._challenge(raw_message, identity)
         t_end = time.time() + 22
         if 'rsa' not in curve_name:
             while time.time() < t_end:
@@ -490,6 +548,7 @@ class OnlyKey(interface.Device):
                         break
                 except Exception as e:
                     raise interface.DeviceError(e)
+            self._raise_if_error(result)
             if len(set(result[34:63])) == 1:
                 result = b'\x04' + bytes(result[0:32])
         else:
@@ -498,6 +557,7 @@ class OnlyKey(interface.Device):
                 try:
                     dec_part = self.ok.read_bytes(timeout_ms=100)
                     if len(dec_part) == 64 and len(set(dec_part[0:63])) != 1:
+                        self._raise_if_error(dec_part)
                         log.info('received part= %s', repr(dec_part))
                         result += dec_part
                         t_end = time.time() + 1
@@ -511,16 +571,10 @@ class OnlyKey(interface.Device):
         return bytes(result)
 
 
-def get_button(self, byte):
-    """Return button number."""
-    if str(self.okversion) == 'v0.2-beta.8c':
-        return byte % 5 + 1
-    else:
-        return byte % 6 + 1
-
-
 def convert_keyslot(self, s):  # pylint: disable=unused-argument
     """Return key slot number."""
+    if s.lower() in ('derived-v2', 'ecc32v2'):
+        return 232
     if 'ECC' in s:
         if len(s) == 5:
             return int(s[3:5]) + 100
