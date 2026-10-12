@@ -109,6 +109,10 @@ class Device:
         """C-tor."""
         self.conn = None
 
+    @classmethod
+    def prepare(cls):
+        """Per-process setup, on the thread that will outlive the agent's worker threads."""
+
     def connect(self):
         """Connect to device, otherwise raise NotFoundError."""
         raise NotImplementedError()
