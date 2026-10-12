@@ -82,7 +82,7 @@ def create_agent_parser(device_type):
                        help='specify ECDSA/EDDSA curve name: ' + curve_names)
         p.add_argument('-sk', '--skey', type=str, metavar='SIGN_KEY',
                        default='ECC32',
-                       help='specify key to use for SSH signtature')
+                       help='key for SSH signatures: ECC1-ECC16, ECC32 (derived, default) or derived-v2 (HKDF)')
 
     else:
         p.add_argument('-e', '--ecdsa-curve-name', metavar='CURVE',
@@ -181,6 +181,9 @@ def handle_connection_error(func):
             return func(*args, **kwargs)
         except device.interface.NotFoundError as e:
             log.error('Connection error (try unplugging and replugging your device): %s', e)
+            return 1
+        except device.interface.DeviceError as e:
+            log.error('%s', e)
             return 1
     return wrapper
 
@@ -313,6 +316,7 @@ def main(device_type):
 
     if command or args.daemonize or args.foreground:
         with context:
+            device_type.prepare()
             return run_server(conn=conn, command=command, sock_path=sock_path,
                               debug=args.debug, timeout=args.timeout)
     else:

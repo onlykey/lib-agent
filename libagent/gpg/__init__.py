@@ -250,10 +250,10 @@ def run_agent(device_type):
     if device_type.package_name() == 'onlykey-agent':
         p.add_argument('-sk', '--skey', type=str, metavar='SIGN_KEY',
                        default='ECC32',
-                       help='specify key to use for signing')
+                       help='signing key: RSA1-4, ECC1-16, ECC32 (derived, default) or derived-v2 (HKDF)')
         p.add_argument('-dk', '--dkey', type=str, metavar='DECRYPT_KEY',
                        default='ECC32',
-                       help='specify key to use for decryption')
+                       help='decryption key: RSA1-4, ECC1-16, ECC32 (derived, default) or derived-v2 (HKDF)')
     else:
         p.add_argument('--passphrase-entry-binary', type=str, default='pinentry',
                        help='Path to passphrase entry UI helper.')
@@ -336,10 +336,10 @@ def main(device_type):
         p.add_argument('-e', '--ecdsa-curve', default='ed25519')
         p.add_argument('-sk', '--skey', type=str, metavar='SIGN_KEY',
                        default='ECC32',
-                       help='specify key to use for signing')
+                       help='signing key: RSA1-4, ECC1-16, ECC32 (derived, default) or derived-v2 (HKDF)')
         p.add_argument('-dk', '--dkey', type=str, metavar='DECRYPT_KEY',
                        default='ECC32',
-                       help='specify key to use for decryption')
+                       help='decryption key: RSA1-4, ECC1-16, ECC32 (derived, default) or derived-v2 (HKDF)')
         p.add_argument('-i', '--import-pub', type=argparse.FileType('r'),
                        metavar='IMPORT_PUBLIC_KEY',
                        default=None,
@@ -380,4 +380,8 @@ def main(device_type):
     else:
         device_type.ui = device.ui.UI(device_type=device_type, config=vars(args))
 
-    return args.func(device_type=device_type, args=args)
+    try:
+        return args.func(device_type=device_type, args=args)
+    except device.interface.DeviceError as e:
+        log.error('%s', e)
+        return 1
