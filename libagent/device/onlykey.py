@@ -354,10 +354,14 @@ class OnlyKey(interface.Device):
                 log.info('Key type secp256k1')
             # Send data and identity hash
             raw_message = blob + data
-        elif curve_name != 'rsa':
+        elif curve_name not in ('rsa', 'rsa2048', 'rsa4096'):
             this_slot_id = self.skeyslot
-            # Send just data to sign
+            # Stored ECC key: send the data to sign
             raw_message = blob
+        elif identity.identity_dict['proto'] == 'ssh':
+            this_slot_id = self.skeyslot
+            # SSH passes the whole message: send its SHA-256/512 hash
+            raw_message = data
         else:
             this_slot_id = self.skeyslot
             # Send just hash
