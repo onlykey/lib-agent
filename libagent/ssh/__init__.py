@@ -1,4 +1,5 @@
 """SSH-agent implementation using hardware authentication devices."""
+import atexit
 import contextlib
 import functools
 import io
@@ -10,9 +11,9 @@ import subprocess
 import sys
 import tempfile
 import threading
+import time
 
 import configargparse
-import daemon
 
 from .. import device, formats, server, util
 from . import client, protocol
@@ -20,6 +21,43 @@ from . import client, protocol
 log = logging.getLogger(__name__)
 
 UNIX_SOCKET_TIMEOUT = 0.1
+
+# CPython on Windows has no socket.AF_UNIX: the agent listens on a named pipe there,
+# which is also where Windows' own OpenSSH looks for an agent (SSH_AUTH_SOCK = the pipe).
+WINDOWS = sys.platform == 'win32'
+
+
+def _agent_listener(sock_path):
+    """The agent's listening end: a named pipe on Windows, a UNIX-domain socket elsewhere."""
+    if WINDOWS:
+        return server.named_pipe_server(sock_path)
+    return server.unix_domain_socket_server(sock_path)
+
+
+def _ssh_program():
+    """
+    The ssh to run for --connect.
+
+    On Windows, Windows' own OpenSSH: it reads a named-pipe SSH_AUTH_SOCK. An ssh
+    built for MSYS/Cygwin (Git Bash's /usr/bin/ssh is one) expects a UNIX-socket
+    path there instead, so finding 'ssh' first on PATH would pick one that cannot
+    reach this agent.
+    """
+    if WINDOWS:
+        system_ssh = os.path.join(os.environ.get('SystemRoot', r'C:\Windows'),
+                                  'System32', 'OpenSSH', 'ssh.exe')
+        if os.path.exists(system_ssh):
+            return system_ssh
+    return 'ssh'
+
+
+def _wait_for_interrupt():
+    """Serve until Ctrl+C: signal.pause() where it exists (not on Windows)."""
+    if hasattr(signal, 'pause'):
+        signal.pause()
+    else:
+        while True:
+            time.sleep(3600)
 
 
 def ssh_args(conn):
@@ -82,7 +120,7 @@ def create_agent_parser(device_type):
                        help='specify ECDSA/EDDSA curve name: ' + curve_names)
         p.add_argument('-sk', '--skey', type=str, metavar='SIGN_KEY',
                        default='ECC32',
-                       help='specify key to use for SSH signtature')
+                       help='key for SSH signatures: ECC1-ECC16, ECC32 (derived, default) or derived-v2 (HKDF)')
 
     else:
         p.add_argument('-e', '--ecdsa-curve-name', metavar='CURVE',
@@ -135,12 +173,12 @@ def serve(handler, sock_path, timeout=UNIX_SOCKET_TIMEOUT):
     If no connection is made during the specified timeout,
     retry until the context is over.
     """
-    ssh_version = subprocess.check_output(['ssh', '-V'],
+    ssh_version = subprocess.check_output([_ssh_program(), '-V'],
                                           stderr=subprocess.STDOUT)
     log.debug('local SSH version: %r', ssh_version)
     environ = {'SSH_AUTH_SOCK': sock_path, 'SSH_AGENT_PID': str(os.getpid())}
     device_mutex = threading.Lock()
-    with server.unix_domain_socket_server(sock_path) as sock:
+    with _agent_listener(sock_path) as sock:
         sock.settimeout(timeout)
         quit_event = threading.Event()
         handle_conn = functools.partial(server.handle_connection,
@@ -167,7 +205,7 @@ def run_server(conn, command, sock_path, debug, timeout):
             if command:
                 ret = server.run_process(command=command, environ=env)
             else:
-                signal.pause()  # wait for signal (e.g. SIGINT)
+                _wait_for_interrupt()  # wait for a signal (e.g. SIGINT)
     except KeyboardInterrupt:
         log.info('server stopped')
     return ret
@@ -181,6 +219,9 @@ def handle_connection_error(func):
             return func(*args, **kwargs)
         except device.interface.NotFoundError as e:
             log.error('Connection error (try unplugging and replugging your device): %s', e)
+            return 1
+        except device.interface.DeviceError as e:
+            log.error('%s', e)
             return 1
     return wrapper
 
@@ -229,9 +270,19 @@ class JustInTimeConnection:
         """Store public keys as temporary SSH identity files."""
         if not self.public_keys_tempfiles:
             for pk in self.public_keys():
-                f = tempfile.NamedTemporaryFile(prefix='trezor-ssh-pubkey-', mode='w')
-                f.write(pk)
-                f.flush()
+                if WINDOWS:
+                    # An open NamedTemporaryFile is delete-on-close on Windows, and no
+                    # other process may open it - ssh could not read its IdentityFile.
+                    # So the file is written and closed, and removed at exit.
+                    f = tempfile.NamedTemporaryFile(prefix='trezor-ssh-pubkey-', mode='w',
+                                                    delete=False)
+                    f.write(pk)
+                    f.close()
+                    atexit.register(server.remove_file, f.name)
+                else:
+                    f = tempfile.NamedTemporaryFile(prefix='trezor-ssh-pubkey-', mode='w')
+                    f.write(pk)
+                    f.flush()
                 self.public_keys_tempfiles.append(f)
 
         return self.public_keys_tempfiles
@@ -253,13 +304,15 @@ def _get_sock_path(args):
         if args.foreground:
             log.error('running in foreground mode requires specifying UNIX socket path')
             sys.exit(1)
+        elif WINDOWS:
+            sock_path = r'\\.\pipe\onlykey-agent-' + os.urandom(8).hex()
         else:
             sock_path = tempfile.mktemp(prefix='trezor-ssh-agent-')
     return sock_path
 
 
 @handle_connection_error
-def main(device_type):
+def main(device_type):  # pylint: disable=too-many-locals
     """Run ssh-agent using given hardware client factory."""
     args = create_agent_parser(device_type=device_type).parse_args()
     util.setup_logging(verbosity=args.verbose, filename=args.log_file)
@@ -294,13 +347,17 @@ def main(device_type):
     command = args.command
     context = _dummy_context()
     if args.connect:
-        command = ['ssh'] + ssh_args(conn) + args.command
+        command = [_ssh_program()] + ssh_args(conn) + args.command
     elif args.mosh:
         command = ['mosh'] + mosh_args(conn) + args.command
     elif args.daemonize:
         out = 'SSH_AUTH_SOCK={0}; export SSH_AUTH_SOCK;\n'.format(sock_path)
         sys.stdout.write(out)
         sys.stdout.flush()
+        # Imported here, not at the top: python-daemon needs the Unix-only
+        # `pwd` module, and a top-level import stopped onlykey-agent from
+        # starting on Windows at all. Only --daemonize uses it.
+        import daemon  # pylint: disable=import-outside-toplevel
         context = daemon.DaemonContext()
         log.info('running the agent as a daemon on %s', sock_path)
     elif args.foreground:
@@ -313,6 +370,7 @@ def main(device_type):
 
     if command or args.daemonize or args.foreground:
         with context:
+            device_type.prepare()
             return run_server(conn=conn, command=command, sock_path=sock_path,
                               debug=args.debug, timeout=args.timeout)
     else:

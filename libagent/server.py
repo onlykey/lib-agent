@@ -1,5 +1,6 @@
 """UNIX-domain socket server for ssh-agent implementation."""
 import contextlib
+import hmac
 import logging
 import os
 import socket
@@ -74,6 +75,239 @@ class FDServer:
 def unix_domain_socket_server_from_fd(fd):
     """Build UDS-based socket server from a file descriptor."""
     yield FDServer(fd)
+
+
+ASSUAN_NONCE_LEN = 16
+
+
+class AssuanNonceServer:
+    """
+    libassuan's socket emulation, as GnuPG for Windows uses it.
+
+    The socket "file" holds a TCP port on 127.0.0.1, a newline, and a 16-byte
+    nonce. A client connects to the port and must send the nonce before
+    anything else; a connection that does not is dropped. The nonce is what
+    keeps other local users out, and the file's place in the user's own
+    profile is what keeps the nonce from them.
+    """
+
+    def __init__(self, sock, nonce):
+        """C-tor."""
+        self.sock = sock
+        self.nonce = nonce
+
+    def accept(self):
+        """Wait for a connection that starts with the nonce."""
+        while True:
+            conn, addr = self.sock.accept()
+            conn.settimeout(10)  # a silent client must not block the agent
+            received = b''
+            try:
+                while len(received) < ASSUAN_NONCE_LEN:
+                    chunk = conn.recv(ASSUAN_NONCE_LEN - len(received))
+                    if not chunk:
+                        break
+                    received += chunk
+            except OSError:
+                pass
+            if hmac.compare_digest(received, self.nonce):
+                return conn, addr
+            log.warning('dropping a connection without the socket nonce')
+            conn.close()
+
+    def getsockname(self):
+        """Forward to underlying socket."""
+        return self.sock.getsockname()
+
+
+@contextlib.contextmanager
+def assuan_nonce_socket_server(sock_path):
+    """
+    Serve libassuan's Windows socket emulation at the specified path.
+
+    Listen on a loopback port, write the port and a fresh nonce to sock_path,
+    and delete the file after the generated context is over.
+    """
+    log.debug('serving on %s', sock_path)
+    remove_file(sock_path)
+
+    server = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    server.bind(('127.0.0.1', 0))
+    server.listen(1)
+    nonce = os.urandom(ASSUAN_NONCE_LEN)
+    with open(sock_path, 'wb') as f:
+        f.write('{}\n'.format(server.getsockname()[1]).encode('ascii') + nonce)
+    try:
+        yield AssuanNonceServer(server, nonce)
+    finally:
+        server.close()
+        remove_file(sock_path)
+
+
+WINDOWS_PIPE_BUFSIZE = 65536
+
+
+class NamedPipeConnection:
+    """
+    One client of a Windows named pipe, with the calls the agent makes on a socket.
+
+    Overlapped I/O, because the pipe is opened overlapped (so accept() can time out).
+    """
+
+    def __init__(self, handle):
+        """C-tor."""
+        self.handle = handle
+
+    def recv(self, n):
+        """Read up to n bytes; b'' when the client has gone (the agent's EOF)."""
+        import _winapi  # pylint: disable=import-outside-toplevel,import-error
+        try:
+            ov, err = _winapi.ReadFile(self.handle, n, overlapped=True)
+        except OSError as e:
+            if getattr(e, 'winerror', None) == _winapi.ERROR_BROKEN_PIPE:
+                return b''
+            raise
+        try:
+            if err == _winapi.ERROR_IO_PENDING:
+                _winapi.WaitForMultipleObjects([ov.event], False, _winapi.INFINITE)
+        except BaseException:
+            ov.cancel()
+            raise
+        try:
+            nread, err = ov.GetOverlappedResult(True)
+        except OSError as e:
+            if getattr(e, 'winerror', None) == _winapi.ERROR_BROKEN_PIPE:
+                return b''
+            raise
+        return bytes(ov.getbuffer()[:nread])
+
+    def sendall(self, data):
+        """Write all of data."""
+        import _winapi  # pylint: disable=import-outside-toplevel,import-error
+        ov, err = _winapi.WriteFile(self.handle, data, overlapped=True)
+        try:
+            if err == _winapi.ERROR_IO_PENDING:
+                _winapi.WaitForMultipleObjects([ov.event], False, _winapi.INFINITE)
+        except BaseException:
+            ov.cancel()
+            raise
+        nwritten, err = ov.GetOverlappedResult(True)
+        if nwritten != len(data):
+            raise OSError('short write to the agent pipe: {} of {}'.format(nwritten, len(data)))
+
+    def settimeout(self, _):
+        """Not needed: the agent waits on a client for as long as it stays."""
+
+    def close(self):
+        """Close this client's pipe instance."""
+        import _winapi  # pylint: disable=import-outside-toplevel,import-error
+        if self.handle is not None:
+            _winapi.CloseHandle(self.handle)
+            self.handle = None
+
+
+class NamedPipeServer:
+    """
+    An ssh-agent listener on a Windows named pipe - what Windows' OpenSSH looks for.
+
+    CPython on Windows has no socket.AF_UNIX, so the UNIX-domain server cannot
+    start there. Each accept() serves one pipe instance (byte mode) and makes the
+    next. Remote clients are rejected (PIPE_REJECT_REMOTE_CLIENTS), and the first
+    instance is created with FILE_FLAG_FIRST_PIPE_INSTANCE, so a name another
+    process already holds fails at start instead of letting it impersonate the
+    agent. The pipe has Windows' default security for a named pipe: only this
+    user, SYSTEM and Administrators may write to it.
+    """
+
+    PIPE_REJECT_REMOTE_CLIENTS = 0x00000008
+    # Win32's byte-mode flags are 0, and _winapi does not name them; spelled out
+    # so the mode is visible: a byte stream, as ssh writes it, not messages.
+    PIPE_TYPE_BYTE = 0x00000000
+    PIPE_READMODE_BYTE = 0x00000000
+
+    def __init__(self, name):
+        """C-tor."""
+        self.name = name
+        self.timeout = None
+        self._pending = None   # (handle, overlapped) waiting for a client
+        self._first = True
+
+    def _listen(self):
+        import _winapi  # pylint: disable=import-outside-toplevel,import-error
+        open_mode = _winapi.PIPE_ACCESS_DUPLEX | _winapi.FILE_FLAG_OVERLAPPED
+        if self._first:
+            open_mode |= _winapi.FILE_FLAG_FIRST_PIPE_INSTANCE
+        handle = _winapi.CreateNamedPipe(
+            self.name, open_mode,
+            self.PIPE_TYPE_BYTE | self.PIPE_READMODE_BYTE | _winapi.PIPE_WAIT
+            | self.PIPE_REJECT_REMOTE_CLIENTS,
+            _winapi.PIPE_UNLIMITED_INSTANCES, WINDOWS_PIPE_BUFSIZE, WINDOWS_PIPE_BUFSIZE,
+            _winapi.NMPWAIT_WAIT_FOREVER, _winapi.NULL)
+        self._first = False
+        try:
+            ov = _winapi.ConnectNamedPipe(handle, overlapped=True)
+        except OSError:
+            _winapi.CloseHandle(handle)
+            raise
+        self._pending = (handle, ov)
+
+    def start(self):
+        """Create the first instance now, so a taken name fails before anything runs."""
+        self._listen()
+
+    def settimeout(self, timeout):
+        """How long accept() waits before raising socket.timeout (None: forever)."""
+        self.timeout = timeout
+
+    def accept(self):
+        """Wait for a client on the pending instance; raise socket.timeout if none came."""
+        import _winapi  # pylint: disable=import-outside-toplevel,import-error
+        if self._pending is None:
+            self._listen()
+        handle, ov = self._pending
+        wait_ms = _winapi.INFINITE if self.timeout is None else int(self.timeout * 1000)
+        if _winapi.WaitForMultipleObjects([ov.event], False, wait_ms) == _winapi.WAIT_TIMEOUT:
+            raise socket.timeout()
+        self._pending = None
+        try:
+            ov.GetOverlappedResult(True)
+        except OSError as e:
+            # ERROR_NO_DATA: the client connected and left already - nothing to serve
+            _winapi.CloseHandle(handle)
+            if getattr(e, 'winerror', None) == _winapi.ERROR_NO_DATA:
+                raise socket.timeout() from e
+            raise
+        return NamedPipeConnection(handle), None
+
+    def getsockname(self):
+        """The pipe's name."""
+        return self.name
+
+    def close(self):
+        """Stop listening."""
+        import _winapi  # pylint: disable=import-outside-toplevel,import-error
+        if self._pending is not None:
+            handle, ov = self._pending
+            self._pending = None
+            ov.cancel()
+            _winapi.CloseHandle(handle)
+
+
+@contextlib.contextmanager
+def named_pipe_server(pipe_name):
+    r"""
+    Serve the ssh-agent on a Windows named pipe (e.g. \\.\pipe\onlykey-agent-...).
+
+    The Windows counterpart of unix_domain_socket_server(); the pipe goes away
+    when the generated context is over.
+    """
+    log.debug('serving on %s', pipe_name)
+    pipe_server = NamedPipeServer(pipe_name)
+    pipe_server.start()
+    try:
+        yield pipe_server
+    finally:
+        pipe_server.close()
 
 
 def handle_connection(conn, handler, mutex):

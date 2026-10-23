@@ -82,7 +82,10 @@ def create_default_options_getter():
         try:
             ttyname = subprocess.check_output(args=['tty']).strip()
             options.append(b'ttyname=' + ttyname)
-        except subprocess.CalledProcessError as e:
+        except (subprocess.CalledProcessError, OSError) as e:
+            # OSError: no `tty` program at all. Windows has none outside a
+            # Git Bash or MSYS shell, and there isatty() is also true for NUL,
+            # the stdin a detached agent gets.
             log.warning('no TTY found: %s', e)
 
     display = os.environ.get('DISPLAY')
