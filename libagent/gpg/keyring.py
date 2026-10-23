@@ -8,6 +8,7 @@ import os
 import re
 import socket
 import subprocess
+from urllib.parse import unquote, unquote_to_bytes
 
 from .. import util
 
@@ -29,8 +30,11 @@ def get_agent_sock_path(env=None, sp=subprocess):
     """Parse gpgconf output to find out GPG agent UNIX socket path."""
     args = [util.which('gpgconf'), '--list-dirs']
     output = check_output(args=args, env=env, sp=sp)
-    lines = output.strip().split(b'\n')
-    dirs = dict(line.split(b':', 1) for line in lines)
+    # gpgconf percent-escapes its values (':' becomes '%3a', so a Windows path
+    # reads 'C%3a\...') and ends its lines with '\r\n' on Windows.
+    lines = output.strip().splitlines()
+    dirs = {name: unquote_to_bytes(value)
+            for name, value in (line.split(b':', 1) for line in lines)}
     log.debug('%s: %s', args, dirs)
     return dirs[b'agent-socket']
 
@@ -193,7 +197,10 @@ def get_gnupg_components(sp=subprocess):
     """Parse GnuPG components' paths."""
     args = [util.which('gpgconf'), '--list-components']
     output = check_output(args=args, sp=sp)
-    components = dict(re.findall('(.*):.*:(.*)', output.decode('utf-8')))
+    # Same escaping as in get_agent_sock_path(): unescape the path and drop the
+    # '\r' of a Windows line ending, which '.*' would otherwise keep.
+    components = {name: unquote(path.rstrip('\r'))
+                  for name, path in re.findall('(.*):.*:(.*)', output.decode('utf-8'))}
     log.debug('gpgconf --list-components: %s', components)
     return components
 
@@ -225,7 +232,8 @@ def gpg_version(sp=subprocess):
     """Get a keygrip of the primary GPG key of the specified user."""
     args = gpg_command(['--version'])
     output = check_output(args=args, sp=sp)
-    line = output.split(b'\n', maxsplit=1)[0]  # b'gpg (GnuPG) 2.1.11'
+    # rstrip(): on Windows the line ends with '\r', which semver rejects.
+    line = output.split(b'\n', maxsplit=1)[0].rstrip()  # b'gpg (GnuPG) 2.1.11'
     line = line.split(b' ')[-1]  # b'2.1.11'
     line = line.split(b'-')[0]  # remove trailing version parts
     return line.split(b'v')[-1]  # remove 'v' prefix

@@ -21,7 +21,6 @@ import time
 import Crypto.Hash
 import Crypto.PublicKey
 import Crypto.Signature
-import daemon
 import semver
 from Crypto.Hash import SHA256, SHA512
 from Crypto.PublicKey import RSA
@@ -118,6 +117,12 @@ def write_file(path, data):
     return f
 
 
+def _windowless_python():
+    """Windows: pythonw.exe next to this Python (no console window), else this Python."""
+    pythonw = os.path.join(os.path.dirname(sys.executable), 'pythonw.exe')
+    return pythonw if os.path.isfile(pythonw) else sys.executable
+
+
 def run_init(device_type, args):
     """Initialize hardware-based GnuPG identity."""
     util.setup_logging(verbosity=args.verbose)
@@ -141,8 +146,11 @@ def run_init(device_type, args):
                   'remove it manually if required', homedir)
         sys.exit(1)
 
-    check_call(['mkdir', '-p', homedir])
-    check_call(['chmod', '700', homedir])
+    # os.makedirs/os.chmod, not the mkdir/chmod programs: Windows has neither
+    # (outside a Git Bash or MSYS shell). On Windows chmod only sets the
+    # read-only bit, which 0o700 leaves off.
+    os.makedirs(homedir)
+    os.chmod(homedir, 0o700)
 
     agent_path = util.which('{}-gpg-agent'.format(device_name))
 
@@ -151,29 +159,33 @@ def run_init(device_type, args):
         if args.import_pub is not None:
             with args.import_pub as f:
                 device_type.import_pub(device_type, f.read())
-        with open(os.path.join(homedir, 'run-agent.sh'), 'w') as f:
-            f.write(r"""#!/bin/sh
-    export PATH="{0}"
-    {1} \
-    -vv \
-    --skey-slot={skey} \
-    --dkey-slot={dkey} \
-    $*
-    """.format(os.environ['PATH'], agent_path, **vars(args)))
+        agent_flags = ['--skey-slot={skey}', '--dkey-slot={dkey}']
     else:
-        with open(os.path.join(homedir, 'run-agent.sh'), 'w') as f:
-            f.write(r"""#!/bin/sh
-    export PATH="{0}"
-    {1} \
-    -vv \
-    --pin-entry-binary={pin_entry_binary} \
-    --passphrase-entry-binary={passphrase_entry_binary} \
-    --cache-expiry-seconds={cache_expiry_seconds} \
-    $*
-    """.format(os.environ['PATH'], agent_path, **vars(args)))
+        agent_flags = ['--pin-entry-binary={pin_entry_binary}',
+                       '--passphrase-entry-binary={passphrase_entry_binary}',
+                       '--cache-expiry-seconds={cache_expiry_seconds}']
+    agent_flags = ['-vv'] + [flag.format(**vars(args)) for flag in agent_flags]
 
-    check_call(['chmod', '700', f.name])
-    run_agent_script = f.name
+    if sys.platform == 'win32':
+        # gpg on Windows starts agent-program with CreateProcess, which cannot
+        # run a shell script (error 193, "not a valid Win32 application"), so
+        # the launcher is a batch file doing what run-agent.sh does: set PATH,
+        # then start the agent with these flags and gpg's own arguments (%*).
+        # The agent runs under pythonw.exe (pip's .exe launchers are zip files
+        # Python can run): a console program started from gpg would open a
+        # console window, every time gpg starts its agent.
+        run_agent_script = os.path.join(homedir, 'run-agent.cmd')
+        with open(run_agent_script, 'w') as f:
+            f.write('@echo off\nset "PATH={0}"\n"{1}" "{2}" {3} %*\n'.format(
+                os.environ['PATH'], _windowless_python(), agent_path,
+                ' '.join(agent_flags)))
+    else:
+        run_agent_script = os.path.join(homedir, 'run-agent.sh')
+        with open(run_agent_script, 'w') as f:
+            f.write('#!/bin/sh\nexport PATH="{0}"\n{1} \\\n{2} \\\n$*\n'.format(
+                os.environ['PATH'], agent_path,
+                ' \\\n'.join(agent_flags)))
+        os.chmod(run_agent_script, 0o700)
 
     # Prepare GPG configuration file
     with open(os.path.join(homedir, 'gpg.conf'), 'w') as f:
@@ -196,7 +208,7 @@ else
     ${{COMMAND}}
 fi
 """.format(homedir))
-    check_call(['chmod', '700', f.name])
+    os.chmod(f.name, 0o700)
 
     # Generate new GPG identity and import into GPG keyring
     pubkey = write_file(os.path.join(homedir, 'pubkey.asc'),
@@ -237,6 +249,10 @@ def _server_from_assuan_fd(env):
 
 def _server_from_sock_path(env):
     sock_path = keyring.get_agent_sock_path(env=env)
+    if sys.platform == 'win32':
+        # GnuPG for Windows has no UNIX sockets: it reads libassuan's socket
+        # file (a loopback port and a nonce) at the same path.
+        return server.assuan_nonce_socket_server(sock_path)
     return server.unix_domain_socket_server(sock_path)
 
 
@@ -250,10 +266,10 @@ def run_agent(device_type):
     if device_type.package_name() == 'onlykey-agent':
         p.add_argument('-sk', '--skey', type=str, metavar='SIGN_KEY',
                        default='ECC32',
-                       help='specify key to use for signing')
+                       help='signing key: RSA1-4, ECC1-16, ECC32 (derived, default) or derived-v2 (HKDF)')
         p.add_argument('-dk', '--dkey', type=str, metavar='DECRYPT_KEY',
                        default='ECC32',
-                       help='specify key to use for decryption')
+                       help='decryption key: RSA1-4, ECC1-16, ECC32 (derived, default) or derived-v2 (HKDF)')
     else:
         p.add_argument('--passphrase-entry-binary', type=str, default='pinentry',
                        help='Path to passphrase entry UI helper.')
@@ -264,7 +280,34 @@ def run_agent(device_type):
 
     args, _ = p.parse_known_args()
 
-    if args.daemon:
+    if args.daemon and sys.platform == 'win32':
+        # gpg starts agent-program with --daemon and waits for it to exit, then
+        # connects to the socket. python-daemon cannot run on Windows, so the
+        # agent starts a detached copy of itself without --daemon, and exits.
+        # The copy gets no handles from gpg: gpg would wait for them to close.
+        # It also leaves the job object of pip's .exe launcher, which kills
+        # every process in the job when the launcher exits.
+        script = sys.argv[0]
+        if not os.path.isfile(script) and os.path.isfile(script + '.exe'):
+            script += '.exe'  # started through pip's launcher: argv[0] has no .exe
+        argv = [_windowless_python(), script] + [a for a in sys.argv[1:] if a != '--daemon']
+        flags = subprocess.DETACHED_PROCESS | subprocess.CREATE_NEW_PROCESS_GROUP
+        try:
+            subprocess.Popen(argv, close_fds=True, stdin=subprocess.DEVNULL,
+                             stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+                             creationflags=flags | subprocess.CREATE_BREAKAWAY_FROM_JOB)
+        except OSError:
+            # A job that does not allow breakaway refuses the flag (access
+            # denied); the copy is then started inside that job.
+            subprocess.Popen(argv, close_fds=True, stdin=subprocess.DEVNULL,
+                             stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+                             creationflags=flags)
+    elif args.daemon:
+        # Imported here, not at the top: python-daemon needs the Unix-only
+        # `pwd` module, so a top-level import stopped every lib-agent command
+        # from starting on Windows (onlykey-agent, onlykey-gpg init) although
+        # only --daemon uses it. Daemonizing stays Unix-only.
+        import daemon  # pylint: disable=import-outside-toplevel
         with daemon.DaemonContext():
             run_agent_internal(args, device_type)
     else:
@@ -303,6 +346,11 @@ def run_agent_internal(args, device_type):
                         handler.handle(conn)
                     except agent.AgentStop:
                         log.info('stopping gpg-agent')
+                    except ConnectionResetError as e:
+                        # Windows reports gpg closing its connection as a reset
+                        # (WinError 10054) where POSIX gives end-of-file: that
+                        # client is gone, and the agent keeps serving the next.
+                        log.debug('connection reset: %s', e)
                     except IOError as e:
                         log.info('connection closed: %s', e)
                         return
@@ -336,10 +384,10 @@ def main(device_type):
         p.add_argument('-e', '--ecdsa-curve', default='ed25519')
         p.add_argument('-sk', '--skey', type=str, metavar='SIGN_KEY',
                        default='ECC32',
-                       help='specify key to use for signing')
+                       help='signing key: RSA1-4, ECC1-16, ECC32 (derived, default) or derived-v2 (HKDF)')
         p.add_argument('-dk', '--dkey', type=str, metavar='DECRYPT_KEY',
                        default='ECC32',
-                       help='specify key to use for decryption')
+                       help='decryption key: RSA1-4, ECC1-16, ECC32 (derived, default) or derived-v2 (HKDF)')
         p.add_argument('-i', '--import-pub', type=argparse.FileType('r'),
                        metavar='IMPORT_PUBLIC_KEY',
                        default=None,
@@ -380,4 +428,8 @@ def main(device_type):
     else:
         device_type.ui = device.ui.UI(device_type=device_type, config=vars(args))
 
-    return args.func(device_type=device_type, args=args)
+    try:
+        return args.func(device_type=device_type, args=args)
+    except device.interface.DeviceError as e:
+        log.error('%s', e)
+        return 1

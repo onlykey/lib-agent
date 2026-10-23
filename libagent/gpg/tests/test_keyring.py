@@ -104,3 +104,42 @@ homedir:/home/roman/.gnupg
 ''')
     expected = b'/run/user/1000/gnupg/S.gpg-agent'
     assert keyring.get_agent_sock_path(sp=sp) == expected
+
+
+def test_get_agent_sock_path_windows():
+    # Gpg4win's gpgconf: '%3a'-escaped drive letters, '\r\n' line endings.
+    sp = mock_subprocess(b'sysconfdir:C%3a\\ProgramData\\GNU\\etc\\gnupg\r\n'
+                         b'bindir:C%3a\\Program Files\\GnuPG\\bin\r\n'
+                         b'agent-socket:C%3a\\Users\\me\\AppData\\Local\\gnupg\\S.gpg-agent\r\n'
+                         b'homedir:C%3a\\Users\\me\\AppData\\Roaming\\gnupg\r\n')
+    expected = b'C:\\Users\\me\\AppData\\Local\\gnupg\\S.gpg-agent'
+    assert keyring.get_agent_sock_path(sp=sp) == expected
+
+
+def test_get_gnupg_components():
+    sp = mock_subprocess(b'gpg:OpenPGP:/usr/bin/gpg\n'
+                         b'gpg-agent:Private Keys:/usr/bin/gpg-agent\n')
+    components = keyring.get_gnupg_components(sp=sp)
+    assert components['gpg'] == '/usr/bin/gpg'
+    assert components['gpg-agent'] == '/usr/bin/gpg-agent'
+
+
+def test_get_gnupg_components_windows():
+    sp = mock_subprocess(b'gpg:OpenPGP:C%3a\\Program Files\\GnuPG\\bin\\gpg.exe\r\n'
+                         b'gpg-agent:Private Keys:'
+                         b'C%3a\\Program Files\\GnuPG\\bin\\gpg-agent.exe\r\n')
+    components = keyring.get_gnupg_components(sp=sp)
+    assert components['gpg'] == 'C:\\Program Files\\GnuPG\\bin\\gpg.exe'
+    assert components['gpg-agent'] == 'C:\\Program Files\\GnuPG\\bin\\gpg-agent.exe'
+
+
+def test_gpg_version():
+    with mock.patch.object(keyring, 'gpg_command', return_value=['gpg', '--version']):
+        sp = mock_subprocess(b'gpg (GnuPG) 2.4.9\nlibgcrypt 1.11.2\n')
+        assert keyring.gpg_version(sp=sp) == b'2.4.9'
+
+
+def test_gpg_version_windows():
+    with mock.patch.object(keyring, 'gpg_command', return_value=['gpg', '--version']):
+        sp = mock_subprocess(b'gpg (GnuPG) 2.5.24\r\nlibgcrypt 1.11.2\r\n')
+        assert keyring.gpg_version(sp=sp) == b'2.5.24'

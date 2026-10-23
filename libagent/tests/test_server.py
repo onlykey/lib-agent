@@ -1,6 +1,7 @@
 import io
 import os
 import socket
+import sys
 import tempfile
 import threading
 
@@ -133,3 +134,86 @@ def test_remove():
 
     with pytest.raises(OSError):
         server.remove_file(path, remove=remove_raise, exists=lambda _: True)
+
+
+def _assuan_connect(path, nonce=None):
+    """Connect as libassuan does on Windows: read the port, send the nonce."""
+    with open(path, 'rb') as f:
+        port, file_nonce = f.read().split(b'\n', 1)
+    conn = socket.create_connection(('127.0.0.1', int(port)))
+    conn.sendall(file_nonce if nonce is None else nonce)
+    return conn
+
+
+def test_assuan_nonce_socket_server():
+    path = tempfile.mktemp()
+    with server.assuan_nonce_socket_server(path) as sock:
+        with open(path, 'rb') as f:
+            port, nonce = f.read().split(b'\n', 1)
+        assert int(port) == sock.getsockname()[1]
+        assert len(nonce) == server.ASSUAN_NONCE_LEN
+
+        client = _assuan_connect(path)
+        conn, _ = sock.accept()
+        client.sendall(b'GETINFO version\n')
+        assert conn.recv(100) == b'GETINFO version\n'
+        conn.close()
+        client.close()
+    assert not os.path.exists(path)
+
+
+def test_assuan_nonce_socket_server_drops_a_wrong_nonce():
+    path = tempfile.mktemp()
+    with server.assuan_nonce_socket_server(path) as sock:
+        accepted = []
+        thread = threading.Thread(target=lambda: accepted.append(sock.accept()))
+        thread.start()
+        intruder = _assuan_connect(path, nonce=b'\x00' * server.ASSUAN_NONCE_LEN)
+        assert intruder.recv(1) == b''  # dropped, never handed to the agent
+        intruder.close()
+        client = _assuan_connect(path)  # the next, correct client is served
+        thread.join(timeout=10)
+        assert len(accepted) == 1
+        accepted[0][0].close()
+        client.close()
+
+
+windows_only = pytest.mark.skipif(not sys.platform.startswith('win'),
+                                  reason='named pipes are the Windows agent transport')
+
+
+def _pipe_name():
+    return r'\\.\pipe\libagent-test-' + os.urandom(6).hex()
+
+
+@windows_only
+def test_named_pipe_server_serves_a_client():
+    name = _pipe_name()
+    with server.named_pipe_server(name) as sock:
+        assert sock.getsockname() == name
+        client = open(name, 'r+b', buffering=0)  # what ssh does: CreateFile on SSH_AUTH_SOCK
+        conn, _ = sock.accept()
+        client.write(b'\x00\x00\x00\x01\x0b')  # one ssh-agent frame
+        assert util.read_frame(conn) == b'\x0b'
+        util.send(conn, b'\x00\x00\x00\x01\x0c')
+        assert client.read(5) == b'\x00\x00\x00\x01\x0c'
+        client.close()
+        assert conn.recv(4) == b''  # the client left: the agent's EOF
+        conn.close()
+
+
+@windows_only
+def test_named_pipe_server_times_out_without_a_client():
+    with server.named_pipe_server(_pipe_name()) as sock:
+        sock.settimeout(0.1)
+        with pytest.raises(socket.timeout):
+            sock.accept()
+
+
+@windows_only
+def test_named_pipe_server_refuses_a_name_already_taken():
+    name = _pipe_name()
+    with server.named_pipe_server(name):
+        with pytest.raises(OSError):
+            with server.named_pipe_server(name):
+                pass
