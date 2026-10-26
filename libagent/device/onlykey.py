@@ -587,14 +587,14 @@ class OnlyKey(interface.Device):
                     dec_part = self.ok.read_bytes(timeout_ms=100)
                     if len(dec_part) == 64 and len(set(dec_part[0:63])) != 1:
                         self._raise_if_error(dec_part)
-                        log.info('received part= %s', repr(dec_part))
+                        log.debug('received part of %d bytes', len(dec_part))
                         result += dec_part
                         t_end = time.time() + 1
                         # Todo know RSA type to know how many packets
                 except Exception as e:
                     raise interface.DeviceError(e)
 
-        log.info('received= %s', repr(result))
+        log.debug('received %d bytes', len(result))
         log.info('disconnected from %s', self.device_name)
         self.ok.close()
         return bytes(result)
