@@ -55,17 +55,25 @@ def test_pkdecrypt_kem_pgp_returns_the_session_key():
             b'(10:kdf-params' + str(len(KEM_KDF_PARAMS)).encode() + b':' + KEM_KDF_PARAMS + b')))')
     lines = iter([b'D ' + util.assuan_serialize(sexp), b'END'])
     sent = []
+    flags = []
     handler = agent.Handler.__new__(agent.Handler)
     handler.keygrip = b'00' * 20
     handler.get_identity = lambda keygrip: mock.Mock(curve_name='curve25519')
     handler.client = mock.Mock()
     handler.client.ecdh.return_value = b'\x04' + KEM_SHARED
+
+    def sendline(conn, msg, confidential=False):
+        sent.append(msg)
+        flags.append(confidential)
+
     with mock.patch.object(agent.keyring, 'recvline', lambda conn: next(lines)), \
-            mock.patch.object(agent.keyring, 'sendline', lambda conn, msg: sent.append(msg)):
+            mock.patch.object(agent.keyring, 'sendline', sendline):
         handler.pkdecrypt(None, (b'--kem=PGP',))
     handler.client.ecdh.assert_called_once_with(identity=mock.ANY, pubkey=KEM_E)
     assert b'S PADDING 0' not in sent
     assert sent[-1] == b'D ' + util.assuan_serialize(b'(5:value40:' + KEM_SESSION_KEY + b')')
+    # The session key must not reach the agent log.
+    assert flags[-1] is True
 
 
 def test_pkdecrypt_refuses_the_composite_kem():

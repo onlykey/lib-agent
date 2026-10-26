@@ -164,7 +164,11 @@ def run_init(device_type, args):
         agent_flags = ['--pin-entry-binary={pin_entry_binary}',
                        '--passphrase-entry-binary={passphrase_entry_binary}',
                        '--cache-expiry-seconds={cache_expiry_seconds}']
-    agent_flags = ['-vv'] + [flag.format(**vars(args)) for flag in agent_flags]
+    # Not -vv: the launcher used to start the agent at DEBUG, and the agent's
+    # log (~/.gnupg/<device>/gpg-agent.log) then recorded every Assuan 'D' line
+    # it sent - including the PGP session key on every decrypt. The user can
+    # still add -v flags to the generated launcher for a debugging session.
+    agent_flags = [flag.format(**vars(args)) for flag in agent_flags]
 
     if sys.platform == 'win32':
         # gpg on Windows starts agent-program with CreateProcess, which cannot

@@ -316,7 +316,8 @@ class Handler:
             # session key back, without a PADDING status.
             shared_point = self.client.ecdh(identity=identity, pubkey=remote_pubkey)
             dvalue = _serialize_point(kem_pgp_session_key(params, shared_point))
-            keyring.sendline(conn, b'D ' + dvalue)
+            # The session key: never into the log.
+            keyring.sendline(conn, b'D ' + dvalue, confidential=True)
             return
         if identity.curve_name in ('rsa2048', 'rsa4096'):
             dvalue = _serialize_rsa(self.client.ecdh(identity=identity, pubkey=remote_pubkey))
@@ -324,7 +325,8 @@ class Handler:
             dvalue = _serialize_point(self.client.ecdh(identity=identity, pubkey=remote_pubkey))
 
         keyring.sendline(conn, b'S PADDING 0')
-        keyring.sendline(conn, b'D ' + dvalue)
+        # The shared point / RSA plaintext gpg derives the session key from.
+        keyring.sendline(conn, b'D ' + dvalue, confidential=True)
 
     def have_key(self, conn, *keygrips):
         """Check if any keygrip corresponds to a TREZOR-based key."""
