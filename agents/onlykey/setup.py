@@ -12,7 +12,7 @@ except IOError:
 
 setup(
     name='onlykey-agent',
-    version='1.1.16',
+    version='1.1.17',
     description='Using OnlyKey as hardware SSH/GPG agent',
     long_description=long_description,
     long_description_content_type='text/markdown',
@@ -26,7 +26,7 @@ setup(
     },
     scripts=['onlykey_agent.py'],
     install_requires=[
-        'lib-agent>=1.0.8',
+        'lib-agent>=1.0.9',
         'onlykey>=1.3.0'
     ],
     python_requires='>=3.10',
